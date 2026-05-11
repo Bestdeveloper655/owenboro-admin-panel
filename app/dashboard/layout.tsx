@@ -5,8 +5,11 @@ import Navbar from "@/components/Navbar";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebaseServices";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebaseServices";
+
+const ALLOWED_ROLES = ["admin", "moderator"];
 
 export default function DashboardLayout({
   children,
@@ -15,6 +18,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [denied, setDenied] = useState(false);
 
   // ✅ Sparkles state (FIXED - no random in render)
   const [dots, setDots] = useState<
@@ -22,11 +26,25 @@ export default function DashboardLayout({
   >([]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.replace("/login");
-      } else {
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db, "Users", user.uid));
+        const role = (snap.data()?.role as string | undefined) ?? "user";
+        if (!ALLOWED_ROLES.includes(role)) {
+          setDenied(true);
+          await signOut(auth);
+          setTimeout(() => router.replace("/login"), 1500);
+          return;
+        }
         setLoading(false);
+      } catch {
+        setDenied(true);
+        await signOut(auth);
+        setTimeout(() => router.replace("/login"), 1500);
       }
     });
 
@@ -42,6 +60,20 @@ export default function DashboardLayout({
     }));
     setDots(generated);
   }, []);
+
+  // 🚫 Access denied
+  if (denied) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black px-6">
+        <div className="max-w-md rounded-3xl border border-red-500/40 bg-[#0a0a0a] p-10 text-center">
+          <h1 className="text-3xl font-bold text-red-400">Access denied</h1>
+          <p className="mt-3 text-[#e8dcc7]">
+            Your account does not have moderator or admin access. Redirecting…
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // ⏳ Loading Screen
   if (loading) {
