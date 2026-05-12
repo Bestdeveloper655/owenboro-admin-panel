@@ -248,10 +248,12 @@ export default function Page() {
   const counts = useMemo(() => items.length, [items]);
 
   return (
-    <div className="px-6 pt-6 pb-10">
-      <div className="mb-8">
-        <h1 className="text-5xl font-bold text-[#ff7a59]">Report Board</h1>
-        <p className="mt-2 text-lg text-[#e8dcc7]">
+    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
+          Report Board
+        </h1>
+        <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
           Review user reports from chats and profiles. Take moderation action
           when needed.
         </p>
@@ -273,8 +275,8 @@ export default function Page() {
         ))}
       </div>
 
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-6">
-        <h2 className="mb-6 text-3xl font-bold text-[#ff7a59]">
+      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
+        <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
           {TABS.find((t) => t.value === tab)?.label} ({counts})
         </h2>
 

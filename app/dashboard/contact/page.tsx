@@ -96,20 +96,20 @@ useEffect(() => {
     <div className="px-4 pt-6 pb-10 md:px-8">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight text-[#ff7a59] md:text-5xl">
+          <h1 className="text-3xl font-bold tracking-tight text-[#ff7a59] sm:text-4xl md:text-5xl">
             All Support Requests
           </h1>
 
-          <p className="mt-2 text-lg font-medium text-[#e8dcc7] md:text-xl">
+          <p className="mt-2 text-base font-medium text-[#e8dcc7] sm:text-lg md:text-xl">
             General questions or requests for information.
           </p>
         </div>
 
         <button
           onClick={exportToCSV}
-          className="rounded-xl border border-[#ff7a59] px-5 py-2 text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white transition"
+          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white sm:self-auto sm:px-5 sm:text-base"
         >
           Export CSV
         </button>
@@ -130,7 +130,7 @@ useEffect(() => {
 
         {/* TABLE */}
         <div className="overflow-x-auto rounded-2xl border border-white/10">
-          <table className="w-full text-left">
+          <table className="w-full min-w-[700px] text-left">
             <thead className="bg-[#ece2cb] text-black">
               <tr>
                 <th className="p-3">Name</th>

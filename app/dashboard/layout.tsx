@@ -19,6 +19,7 @@ export default function DashboardLayout({
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // ✅ Sparkles state (FIXED - no random in render)
   const [dots, setDots] = useState<
@@ -114,10 +115,15 @@ export default function DashboardLayout({
   // ✅ Main Layout
   return (
     <div className="flex min-h-screen bg-black text-white">
-      <Sidebar />
-      <div className="flex flex-1 flex-col">
-        <Navbar />
-        <main className="flex-1 pt-4 pb-4 px-8">{children}</main>
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Navbar onMenuClick={() => setSidebarOpen(true)} />
+        <main className="flex-1 px-4 pt-4 pb-4 sm:px-6 lg:px-8">
+          {children}
+        </main>
       </div>
     </div>
   );

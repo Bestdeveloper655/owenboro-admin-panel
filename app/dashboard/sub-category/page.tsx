@@ -387,9 +387,11 @@ export default function Page() {
   );
 
   return (
-    <div className="px-4 pt-6 pb-10 md:px-8">
-      <div className="flex flex-col gap-5 md:flex-row md:justify-between">
-        <h1 className="text-4xl font-bold text-[#ff7a59]">Sub Categories</h1>
+    <div className="px-2 pt-4 pb-8 sm:px-4 sm:pt-6 sm:pb-10 md:px-8">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
+          Sub Categories
+        </h1>
 
         <button
           onClick={() => {
@@ -409,7 +411,7 @@ export default function Page() {
         ) : (
           <>
             <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full text-left">
+              <table className="w-full min-w-[700px] text-left">
                 <thead className="bg-[#ece2cb] text-black">
                   <tr>
                     <th className="p-3">Image</th>

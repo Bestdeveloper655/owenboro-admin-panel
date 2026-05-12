@@ -597,12 +597,14 @@ const subRef = form.subCategoryId
       : "";
 
   return (
-    <div className="px-6 pt-6 pb-10">
+    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
       {/* HEADER */}
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-[#ff7a59]">Listings</h1>
-          <p className="mt-2 text-lg font-medium text-[#e8dcc7] md:text-xl">
+          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
+            Listings
+          </h1>
+          <p className="mt-2 text-base font-medium text-[#e8dcc7] sm:text-lg md:text-xl">
             Manage and organize all published platform listings.
           </p>
         </div>
@@ -610,7 +612,7 @@ const subRef = form.subCategoryId
         <div className="flex items-center gap-3">
           <button
             onClick={openAddModal}
-            className="rounded-xl border border-[#ff7a59] px-5 py-2 text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white"
+            className="rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white sm:px-5 sm:text-base"
           >
             Add Listing
           </button>
@@ -634,7 +636,7 @@ const subRef = form.subCategoryId
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-white/10">
-          <table className="w-full text-left">
+          <table className="w-full min-w-[800px] text-left">
             <thead className="bg-[#ece2cb] text-black">
               <tr>
                 <th className="p-3">Image</th>

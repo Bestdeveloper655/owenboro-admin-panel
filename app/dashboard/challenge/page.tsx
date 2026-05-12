@@ -198,14 +198,14 @@ export default function Page() {
     <div className="px-4 pt-6 pb-10 md:px-8">
 
       {/* HEADER */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-4xl font-bold text-[#ff7a59]">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
           Challenge
         </h1>
 
         <button
           onClick={() => setAdding(true)}
-          className="border border-[#ff7a59] px-5 py-2 rounded-xl text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white transition"
+          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white sm:self-auto sm:px-5 sm:text-base"
         >
           Add Challenge
         </button>

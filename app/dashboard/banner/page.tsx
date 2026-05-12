@@ -352,12 +352,14 @@ const bannerSnap = await getDocs(bannerQuery);
   return (
     <div className="px-4 pt-6 pb-10 md:px-8">
       {/* HEADER */}
-      <div className="flex justify-between mb-8">
-        <h1 className="text-4xl font-bold text-[#ff7a59]">Banner</h1>
+      <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
+          Banner
+        </h1>
 
         <button
           onClick={() => setAdding(true)}
-          className="border border-[#ff7a59] px-5 py-2 rounded-xl text-[#ff7a59]"
+          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] sm:self-auto sm:px-5 sm:text-base"
         >
           Add Banner
         </button>
@@ -365,7 +367,7 @@ const bannerSnap = await getDocs(bannerQuery);
 
       {/* TABLE */}
       <div className="overflow-x-auto rounded-2xl border border-white/10">
-        <table className="w-full text-left">
+        <table className="w-full min-w-[800px] text-left">
           <thead className="bg-[#ece2cb] text-black">
             <tr>
               <th className="p-3">Image</th>

@@ -164,17 +164,19 @@ export default function Page() {
   }
 
   return (
-    <div className="px-6 pt-6 pb-10">
-      <div className="mb-8">
-        <h1 className="text-5xl font-bold text-[#ff7a59]">Moderators</h1>
-        <p className="mt-2 text-lg text-[#e8dcc7]">
+    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
+          Moderators
+        </h1>
+        <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
           Promote trusted users to moderators so they can help review reports.
           Only admins can add or remove moderators.
         </p>
       </div>
 
-      <section className="mb-8 rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-6">
-        <h2 className="mb-4 text-3xl font-bold text-[#ff7a59]">
+      <section className="mb-8 rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
+        <h2 className="mb-4 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
           Add a moderator
         </h2>
         <input
@@ -195,8 +197,8 @@ export default function Page() {
             No matching users found (admins and existing moderators are hidden).
           </p>
         ) : (
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
-            <table className="w-full text-left">
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
+            <table className="w-full min-w-[600px] text-left">
               <thead className="bg-[#ece2cb] text-black">
                 <tr>
                   <th className="p-3">Name</th>
@@ -231,8 +233,8 @@ export default function Page() {
         )}
       </section>
 
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-6">
-        <h2 className="mb-6 text-3xl font-bold text-[#ff7a59]">
+      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
+        <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
           Current moderators ({moderators.length})
         </h2>
 
@@ -241,8 +243,8 @@ export default function Page() {
         ) : moderators.length === 0 ? (
           <p className="text-[#f3ead7]/70">No moderators yet.</p>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-white/10">
-            <table className="w-full text-left">
+          <div className="overflow-x-auto rounded-2xl border border-white/10">
+            <table className="w-full min-w-[600px] text-left">
               <thead className="bg-[#ece2cb] text-black">
                 <tr>
                   <th className="p-3">Name</th>

@@ -414,20 +414,22 @@ export default function Page() {
   };
 
   return (
-    <div className="px-6 pt-6 pb-10">
-      <div className="flex justify-between mb-8">
-        <h1 className="text-4xl font-bold text-[#ff7a59]">Categories</h1>
+    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
+      <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
+          Categories
+        </h1>
 
         <button
           onClick={openAddModal}
-          className="border border-[#ff7a59] px-5 py-2 rounded-xl text-[#ff7a59]"
+          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] sm:self-auto sm:px-5 sm:text-base"
         >
           Add Category
         </button>
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-white/10">
-        <table className="w-full text-left">
+        <table className="w-full min-w-[700px] text-left">
           <thead className="bg-[#ece2cb] text-black">
             <tr>
               <th className="p-3">Image</th>

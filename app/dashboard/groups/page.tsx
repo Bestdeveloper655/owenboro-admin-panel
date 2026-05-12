@@ -374,12 +374,14 @@ export default function Page() {
   }, [groups, page]);
 
   return (
-    <div className="px-6 pt-6 pb-10">
+    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
       {/* HEADER */}
-      <div className="mb-8 flex justify-between items-center">
+      <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-5xl font-bold text-[#ff7a59]">Groups</h1>
-          <p className="mt-2 text-lg text-[#e8dcc7]">
+          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
+            Groups
+          </h1>
+          <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
             Manage community groups for the mobile app.
           </p>
         </div>
@@ -392,15 +394,15 @@ export default function Page() {
             setFile(null);
             setError("");
           }}
-          className="rounded-xl border border-[#ff7a59] px-5 py-2 text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white"
+          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white sm:self-auto sm:px-5 sm:text-base"
         >
           + Create Group
         </button>
       </div>
 
       {/* TABLE */}
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-6">
-        <h2 className="text-3xl font-bold text-[#ff7a59] mb-6">
+      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
+        <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
           All Groups ({groups.length})
         </h2>
 
@@ -409,7 +411,7 @@ export default function Page() {
         ) : (
           <>
             <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full text-left">
+              <table className="w-full min-w-[800px] text-left">
                 <thead className="bg-[#ece2cb] text-black">
                   <tr>
                     <th className="p-3">Name</th>
