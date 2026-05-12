@@ -2,8 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useUserRole } from "@/lib/useUserRole";
 
-const menuItems = [
+type MenuItem = {
+  name: string;
+  path: string;
+  adminOnly?: boolean;
+};
+
+const menuItems: MenuItem[] = [
   { name: "Dashboard", path: "/dashboard" },
   { name: "Category", path: "/dashboard/category" },
   { name: "Sub Category", path: "/dashboard/sub-category" },
@@ -18,16 +25,23 @@ const menuItems = [
   { name: "Notifications", path: "/dashboard/notifications" },
   { name: "App Config", path: "/dashboard/app-config" },
   { name: "Groups", path: "/dashboard/groups" },
-
+  { name: "Reports", path: "/dashboard/reports" },
+  { name: "Moderators", path: "/dashboard/moderators", adminOnly: true },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { role } = useUserRole();
+  const isAdmin = role === "admin";
+
+  const visibleItems = menuItems.filter(
+    (item) => !item.adminOnly || isAdmin,
+  );
 
   return (
     <aside className="min-h-screen w-[290px] bg-[#efe5cf] p-4 text-black">
       <div className="mt-32 space-y-2">
-        {menuItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive = pathname === item.path;
 
           return (
