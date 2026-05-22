@@ -42,6 +42,7 @@ type Listing = {
   facebookUrl?: string;
   locationUrl?: string;
   order?: number;
+  recommended?: boolean;
 };
 
 type ListingForm = {
@@ -156,6 +157,7 @@ export default function Page() {
           facebookUrl: x.facebookUrl || "",
           locationUrl: x.locationUrl || "",
           order: x.order ?? 999,
+          recommended: x.recommended === true,
         };
       });
 
@@ -520,6 +522,29 @@ const subRef = form.subCategoryId
     }
   };
 
+  /* TOGGLE RECOMMENDED */
+  const toggleRecommended = async (item: Listing) => {
+    const next = !item.recommended;
+
+    setListings((prev) =>
+      prev.map((l) => (l.id === item.id ? { ...l, recommended: next } : l)),
+    );
+
+    try {
+      await updateDoc(doc(db, "Products", item.id), {
+        recommended: next,
+      });
+    } catch (err) {
+      console.error(err);
+      setError("Failed to update recommended state.");
+      setListings((prev) =>
+        prev.map((l) =>
+          l.id === item.id ? { ...l, recommended: item.recommended } : l,
+        ),
+      );
+    }
+  };
+
   /* DRAG DROP - AUTO SAVE */
   const handleDropRow = async (target: Listing) => {
     if (!dragged || dragged.id === target.id) return;
@@ -644,6 +669,7 @@ const subRef = form.subCategoryId
                 <th className="p-3">Category</th>
                 <th className="p-3">Address</th>
                 <th className="p-3">Order</th>
+                <th className="p-3">Recommended</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -683,6 +709,24 @@ const subRef = form.subCategoryId
                   </td>
 
                   <td className="p-3">{l.order ?? "-"}</td>
+
+                  <td className="p-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={!!l.recommended}
+                      onClick={() => toggleRecommended(l)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff7a59]/40 ${
+                        l.recommended ? "bg-[#ff7a59]" : "bg-black/20"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                          l.recommended ? "translate-x-5" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </td>
 
                   <td className="p-3">
                     <div className="flex justify-end gap-2">

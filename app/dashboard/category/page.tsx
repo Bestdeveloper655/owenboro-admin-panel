@@ -28,6 +28,7 @@ type Category = {
   slug: string;
   image: string;
   order?: number;
+  recommended?: boolean;
 };
 
 export default function Page() {
@@ -38,11 +39,12 @@ export default function Page() {
 
   const [dragged, setDragged] = useState<Category | null>(null);
 
-  const [form, setForm] = useState({ name: "", slug: "", order: "" });
+  const [form, setForm] = useState({ name: "", slug: "", order: "", recommended: false });
   const [file, setFile] = useState<File | null>(null);
   const [formError, setFormError] = useState("");
 
   const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const preloadingRef = useRef<Set<string>>(new Set());
 
@@ -87,6 +89,7 @@ export default function Page() {
         slug: x.slug || "",
         image: x.image || "",
         order: x.order ?? 999,
+        recommended: x.recommended === true,
       };
     });
 
@@ -152,7 +155,7 @@ export default function Page() {
   };
 
   const resetFormState = () => {
-    setForm({ name: "", slug: "", order: "" });
+    setForm({ name: "", slug: "", order: "", recommended: false });
     setFile(null);
     setFormError("");
   };
@@ -176,6 +179,7 @@ export default function Page() {
       name: category.name,
       slug: category.slug,
       order: category.order ? String(category.order) : "",
+      recommended: category.recommended === true,
     });
     setFile(null);
     setFormError("");
@@ -235,6 +239,7 @@ export default function Page() {
         slug: form.slug,
         image: imageUrl,
         order: desiredOrder,
+        recommended: form.recommended,
       };
 
       const reordered = insertCategoryAtOrder(
@@ -263,6 +268,7 @@ export default function Page() {
         slug: form.slug,
         image: imageUrl,
         order: finalOrder,
+        recommended: form.recommended,
       });
 
       await fetchData();
@@ -307,6 +313,7 @@ export default function Page() {
         slug: form.slug,
         image: imageUrl,
         order: desiredOrder,
+        recommended: form.recommended,
       };
 
       const reordered = insertCategoryAtOrder(
@@ -334,6 +341,7 @@ export default function Page() {
         slug: form.slug,
         image: imageUrl,
         order: finalOrder,
+        recommended: form.recommended,
       });
 
       await fetchData();
@@ -376,6 +384,37 @@ export default function Page() {
       setDeleting(null);
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  /* TOGGLE RECOMMENDED */
+  const toggleRecommended = async (category: Category) => {
+    if (togglingId) return;
+
+    const nextValue = !category.recommended;
+
+    setTogglingId(category.id);
+    setCategories((prev) =>
+      prev.map((item) =>
+        item.id === category.id ? { ...item, recommended: nextValue } : item,
+      ),
+    );
+
+    try {
+      await updateDoc(doc(db, "Catagories", category.id), {
+        recommended: nextValue,
+      });
+    } catch (error) {
+      console.error(error);
+      setCategories((prev) =>
+        prev.map((item) =>
+          item.id === category.id
+            ? { ...item, recommended: category.recommended }
+            : item,
+        ),
+      );
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -436,6 +475,7 @@ export default function Page() {
               <th className="p-3">Name</th>
               <th className="p-3">Slug</th>
               <th className="p-3">Order</th>
+              <th className="p-3">Recommended</th>
               <th className="p-3 text-right min-w-[170px]">Actions</th>
             </tr>
           </thead>
@@ -449,6 +489,8 @@ export default function Page() {
                 handleDrop={handleDrop}
                 setEditing={openEditModal}
                 setDeleting={setDeleting}
+                toggleRecommended={toggleRecommended}
+                isToggling={togglingId === c.id}
               />
             ))}
           </tbody>
@@ -531,6 +573,22 @@ export default function Page() {
             }}
           />
 
+          <div className="mt-4 flex items-center justify-between rounded-xl border border-[#ff7a59]/40 bg-white/40 px-4 py-3">
+            <div>
+              <p className="font-semibold">Show in Recommended</p>
+              <p className="text-xs text-[#5f5542]">
+                When enabled, this category appears in the app&rsquo;s recommended section.
+              </p>
+            </div>
+            <ToggleSwitch
+              checked={form.recommended}
+              onChange={(value) => {
+                setForm({ ...form, recommended: value });
+                setFormError("");
+              }}
+            />
+          </div>
+
           {editing && !formError && (
             <p className="mt-2 text-sm text-[#5f5542]">
               Changing the display order will automatically shift the other categories.
@@ -586,6 +644,8 @@ const CategoryRow = React.memo(function CategoryRow({
   handleDrop,
   setEditing,
   setDeleting,
+  toggleRecommended,
+  isToggling,
 }: any) {
   return (
     <tr
@@ -606,6 +666,21 @@ const CategoryRow = React.memo(function CategoryRow({
       <td className="p-3 font-semibold">{c.name}</td>
       <td className="p-3">{c.slug}</td>
       <td className="p-3">{c.order}</td>
+
+      <td className="p-3">
+        <div className="flex items-center gap-2">
+          <ToggleSwitch
+            checked={c.recommended === true}
+            disabled={isToggling}
+            onChange={() => toggleRecommended(c)}
+          />
+          {c.recommended && (
+            <span className="rounded-full bg-[#ff7a59]/10 px-2 py-0.5 text-xs font-medium text-[#ff7a59]">
+              Recommended
+            </span>
+          )}
+        </div>
+      </td>
 
       <td className="p-3 min-w-[170px]">
         <div className="flex justify-end items-center gap-2 whitespace-nowrap">
@@ -653,5 +728,34 @@ function Input({ label, value, onChange }: any) {
         className="w-full border border-[#ff7a59] rounded-xl p-3 mt-1"
       />
     </div>
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+        checked ? "bg-[#ff7a59]" : "bg-gray-300"
+      }`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+          checked ? "translate-x-5" : "translate-x-0.5"
+        }`}
+      />
+    </button>
   );
 }
