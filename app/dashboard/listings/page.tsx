@@ -58,6 +58,7 @@ type ListingForm = {
   facebookUrl: string;
   locationUrl: string;
   order: number | "";
+  recommended: boolean;
 };
 
 const EMPTY_FORM: ListingForm = {
@@ -73,7 +74,10 @@ const EMPTY_FORM: ListingForm = {
   facebookUrl: "",
   locationUrl: "",
   order: "",
+  recommended: false,
 };
+
+type RecommendedFilter = "all" | "recommended" | "not";
 
 export default function Page() {
   const [listings, setListings] = useState<Listing[]>([]);
@@ -93,19 +97,27 @@ export default function Page() {
 
   const [form, setForm] = useState<ListingForm>(EMPTY_FORM);
 
+  const [filter, setFilter] = useState<RecommendedFilter>("all");
+
   const imageCacheRef = useRef<Map<string, string>>(new Map());
 
-  /* PAGINATION */
+  /* FILTERED + PAGINATION */
+  const filteredListings = useMemo(() => {
+    if (filter === "recommended") return listings.filter((l) => l.recommended);
+    if (filter === "not") return listings.filter((l) => !l.recommended);
+    return listings;
+  }, [listings, filter]);
+
   const [page, setPage] = useState(1);
   const perPage = 12;
 
-  const totalPages = Math.max(1, Math.ceil(listings.length / perPage));
+  const totalPages = Math.max(1, Math.ceil(filteredListings.length / perPage));
   const safePage = Math.min(page, totalPages);
 
   const paginatedData = useMemo(() => {
     const start = (safePage - 1) * perPage;
-    return listings.slice(start, start + perPage);
-  }, [listings, safePage]);
+    return filteredListings.slice(start, start + perPage);
+  }, [filteredListings, safePage]);
 
   /* FETCH */
   const fetchData = async () => {
@@ -192,6 +204,10 @@ export default function Page() {
     }
   }, [page, totalPages]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [filter]);
+
   /* HELPERS */
   const filteredSubs = useMemo(
     () => subCategories.filter((s) => s.categoryId === form.categoryId),
@@ -235,6 +251,7 @@ export default function Page() {
       facebookUrl: listing.facebookUrl || "",
       locationUrl: listing.locationUrl || "",
       order: listing.order ?? "",
+      recommended: listing.recommended === true,
     });
     setError("");
   };
@@ -367,6 +384,7 @@ const subRef = form.subCategoryId
         facebookUrl: form.facebookUrl,
         locationUrl: form.locationUrl,
         order: desiredOrder,
+        recommended: form.recommended,
       };
 
       const reordered = insertListingAtOrder(
@@ -404,6 +422,7 @@ const subRef = form.subCategoryId
         createdAt: new Date(),
         productRef: newDocRef,
         order: finalOrder,
+        recommended: form.recommended,
       });
 
       await fetchData();
@@ -470,6 +489,7 @@ const subRef = form.subCategoryId
         facebookUrl: form.facebookUrl,
         locationUrl: form.locationUrl,
         order: desiredOrder,
+        recommended: form.recommended,
       };
 
       const updatedListings = listings.map((item) =>
@@ -510,6 +530,7 @@ const subRef = form.subCategoryId
         facebookUrl: form.facebookUrl,
         locationUrl: form.locationUrl,
         order: finalOrder,
+        recommended: form.recommended,
       });
 
       await fetchData();
@@ -634,7 +655,28 @@ const subRef = form.subCategoryId
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="inline-flex rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
+            {(["all", "recommended", "not"] as RecommendedFilter[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={`rounded-lg px-3 py-1.5 transition sm:px-4 ${
+                  filter === f
+                    ? "bg-[#ff7a59] text-white"
+                    : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
+                }`}
+              >
+                {f === "all"
+                  ? "All"
+                  : f === "recommended"
+                    ? "Recommended"
+                    : "Not Recommended"}
+              </button>
+            ))}
+          </div>
+
           <button
             onClick={openAddModal}
             className="rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white sm:px-5 sm:text-base"
@@ -655,9 +697,13 @@ const subRef = form.subCategoryId
         <div className="rounded-2xl border border-[#ff7a59]/40 bg-[#0a0a0a] px-5 py-10 text-center text-[#f3ead7]/70">
           Loading listings...
         </div>
-      ) : listings.length === 0 ? (
+      ) : filteredListings.length === 0 ? (
         <div className="rounded-2xl border border-[#ff7a59]/40 bg-[#0a0a0a] px-5 py-10 text-center text-[#f3ead7]/70">
-          No listings found.
+          {filter === "recommended"
+            ? "No recommended listings yet. Toggle the recommended switch on any listing or create a new one."
+            : filter === "not"
+              ? "No non-recommended listings."
+              : "No listings found."}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-white/10">
@@ -756,8 +802,11 @@ const subRef = form.subCategoryId
     {/* PAGINATION */}
 <div className="mt-6 flex items-center justify-between text-[#f3ead7]">
   <p>
-    Showing {(safePage - 1) * perPage + 1}–
-    {Math.min(safePage * perPage, listings.length)} of {listings.length}
+    Showing {filteredListings.length === 0 ? 0 : (safePage - 1) * perPage + 1}–
+    {Math.min(safePage * perPage, filteredListings.length)} of {filteredListings.length}
+    {filter !== "all" && (
+      <span className="text-[#f3ead7]/60"> · {listings.length} total</span>
+    )}
   </p>
 
   <div className="flex items-center gap-2 flex-wrap">
@@ -860,6 +909,32 @@ const subRef = form.subCategoryId
               }))
             }
           />
+
+          <div className="mt-4 flex items-center justify-between rounded-xl border border-[#ff7a59]/40 bg-white/40 px-4 py-3">
+            <div>
+              <p className="text-black font-semibold">Show in Recommended</p>
+              <p className="text-xs text-black/60">
+                When enabled, this listing appears in the app&rsquo;s recommended row.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.recommended}
+              onClick={() =>
+                setForm((prev) => ({ ...prev, recommended: !prev.recommended }))
+              }
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff7a59]/40 ${
+                form.recommended ? "bg-[#ff7a59]" : "bg-black/20"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                  form.recommended ? "translate-x-5" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
 
           <Input
             label="Short Description"
