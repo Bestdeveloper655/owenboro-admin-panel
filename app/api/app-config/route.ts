@@ -28,6 +28,7 @@ export async function GET() {
         latest_version: "1.0.0",
         min_supported_version: "1.0.0",
         force_update: false,
+        messaging_paused: false,
         play_store_url:
           "https://play.google.com/store/apps/details?id=com.techorphic.TheOwensboroApp",
         app_store_url:
@@ -44,6 +45,7 @@ export async function GET() {
         data.min_supported_version || data.latest_version || "1.0.0"
       ),
       force_update: Boolean(data.force_update),
+      messaging_paused: Boolean(data.messaging_paused),
       play_store_url: String(
         data.play_store_url ||
           "https://play.google.com/store/apps/details?id=com.techorphic.TheOwensboroApp"

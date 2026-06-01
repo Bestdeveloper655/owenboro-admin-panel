@@ -8,6 +8,7 @@ export default function AppConfigPage() {
     latest_version: "",
     min_supported_version: "",
     force_update: false,
+    messaging_paused: false,
     play_store_url: "",
     app_store_url: "",
     message: "",
@@ -51,6 +52,7 @@ export default function AppConfigPage() {
           latest_version: data.latest_version || "",
           min_supported_version: data.min_supported_version || "",
           force_update: data.force_update || false,
+          messaging_paused: data.messaging_paused || false,
           play_store_url: data.play_store_url || "",
           app_store_url: data.app_store_url || "",
           message: data.message || "",
@@ -187,6 +189,30 @@ export default function AppConfigPage() {
               setForm({
                 ...form,
                 force_update: e.target.checked,
+              })
+            }
+            className="h-6 w-6 accent-[#ff6b4a]"
+          />
+        </div>
+
+        {/* Pause all messaging toggle */}
+        <div className="mt-4 flex items-center justify-between rounded-xl border border-[#ff6b4a] p-4">
+          <div>
+            <p className="text-[#f4ead7] font-semibold">
+              Pause All Messaging
+            </p>
+            <p className="text-sm text-gray-400">
+              Temporarily stops users from sending group and direct messages
+            </p>
+          </div>
+
+          <input
+            type="checkbox"
+            checked={form.messaging_paused}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                messaging_paused: e.target.checked,
               })
             }
             className="h-6 w-6 accent-[#ff6b4a]"

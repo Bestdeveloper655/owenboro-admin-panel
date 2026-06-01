@@ -38,6 +38,7 @@ export async function POST(req: Request) {
         latest_version: body.latest_version,
         min_supported_version: body.min_supported_version,
         force_update: Boolean(body.force_update),
+        messaging_paused: Boolean(body.messaging_paused),
         play_store_url: body.play_store_url || "",
         app_store_url: body.app_store_url || "",
         message: body.message || "",
