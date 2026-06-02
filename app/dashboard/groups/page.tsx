@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   getDocs,
+  getDoc,
   addDoc,
   updateDoc,
   deleteDoc,
+  setDoc,
   doc,
   query,
   orderBy,
@@ -19,6 +21,46 @@ import {
 } from "firebase/storage";
 import { serverTimestamp } from "firebase/firestore";
 import { db, storage } from "@/lib/firebaseServices";
+
+/**
+ * This user is automatically added as a member to every group the admin
+ * creates. A backfill script (scripts/addDefaultUserToGroups.js) adds them
+ * to any groups that already existed.
+ */
+const DEFAULT_MEMBER_UID = "alw3WyINMrYe3njG6H0c7IzSCo52";
+const DEFAULT_MEMBER_EMAIL = "jag42303@gmail.com";
+
+/** Add the default member to a freshly created group. */
+async function addDefaultMember(groupId: string) {
+  try {
+    let name = "";
+    let email = DEFAULT_MEMBER_EMAIL;
+    try {
+      const userSnap = await getDoc(doc(db, "Users", DEFAULT_MEMBER_UID));
+      if (userSnap.exists()) {
+        const u = userSnap.data();
+        name = u.display_name || u.full_name || "";
+        email = u.email || DEFAULT_MEMBER_EMAIL;
+      }
+    } catch (e) {
+      console.error("Could not load default member profile:", e);
+    }
+
+    await setDoc(
+      doc(db, "Groups", groupId, "members", DEFAULT_MEMBER_UID),
+      {
+        userId: DEFAULT_MEMBER_UID,
+        name,
+        email,
+        joinedAt: serverTimestamp(),
+        status: "active",
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.error("Failed to add default member to group:", err);
+  }
+}
 
 type Group = {
   id: string;
@@ -201,12 +243,15 @@ export default function Page() {
 
       const docRef = await addDoc(collection(db, "Groups"), newGroup);
 
+      // Automatically add the default member to every new group.
+      await addDefaultMember(docRef.id);
+
       setGroups((prev) => [
         {
           id: docRef.id,
           ...newGroup,
           createdAt: new Date(),
-          memberCount: 0,
+          memberCount: 1,
         } as Group,
         ...prev,
       ]);
