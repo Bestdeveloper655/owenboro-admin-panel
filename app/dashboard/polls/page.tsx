@@ -10,6 +10,7 @@ import {
   doc,
   orderBy,
   query,
+  onSnapshot,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebaseServices";
@@ -74,37 +75,38 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* FETCH POLLS FOR SELECTED GROUP */
-  const fetchPolls = async (gid: string) => {
-    if (!gid) return;
-    setLoadingPolls(true);
-    try {
-      const snap = await getDocs(
-        query(collection(db, "Groups", gid, "polls"), orderBy("date", "desc")),
-      );
-      const data: Poll[] = snap.docs.map((d) => {
-        const x = d.data();
-        return {
-          id: d.id,
-          question: x.question || "",
-          options: Array.isArray(x.options) ? x.options : [],
-          date: x.date || d.id,
-          active: x.active !== false,
-          totalVotes: x.totalVotes || 0,
-          voteCounts: x.voteCounts || {},
-        };
-      });
-      setPolls(data);
-    } catch (e) {
-      console.error(e);
-      setError("Failed to load polls");
-    } finally {
-      setLoadingPolls(false);
-    }
-  };
-
+  /* LIVE POLLS FOR SELECTED GROUP — updates in real time as users vote */
   useEffect(() => {
-    if (groupId) fetchPolls(groupId);
+    if (!groupId) {
+      setPolls([]);
+      return;
+    }
+    setLoadingPolls(true);
+    const unsub = onSnapshot(
+      query(collection(db, "Groups", groupId, "polls"), orderBy("date", "desc")),
+      (snap) => {
+        const data: Poll[] = snap.docs.map((d) => {
+          const x = d.data();
+          return {
+            id: d.id,
+            question: x.question || "",
+            options: Array.isArray(x.options) ? x.options : [],
+            date: x.date || d.id,
+            active: x.active !== false,
+            totalVotes: x.totalVotes || 0,
+            voteCounts: x.voteCounts || {},
+          };
+        });
+        setPolls(data);
+        setLoadingPolls(false);
+      },
+      (e) => {
+        console.error(e);
+        setError("Failed to load polls");
+        setLoadingPolls(false);
+      },
+    );
+    return () => unsub();
   }, [groupId]);
 
   /* OPTION HELPERS */
@@ -159,7 +161,7 @@ export default function Page() {
 
       setNotice(`Poll saved for ${date}.`);
       resetForm();
-      await fetchPolls(groupId);
+      // The live onSnapshot listener refreshes the list automatically.
     } catch (e) {
       console.error(e);
       setError("Failed to save poll.");
