@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   doc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebaseServices";
 
@@ -83,47 +85,69 @@ export default function Page() {
     return () => unsub();
   }, [tab]);
 
+  // Resolve every pending submission for a user in one batch, so older
+  // duplicate submissions don't resurface in the pending tab afterwards.
+  const resolvePending = async (
+    uid: string,
+    status: "approved" | "rejected",
+    why: string,
+    reviewer: string,
+  ) => {
+    const pendingSnap = await getDocs(
+      query(
+        collection(db, "VerificationPhotos"),
+        where("uid", "==", uid),
+        where("status", "==", "pending"),
+      ),
+    );
+    const batch = writeBatch(db);
+    pendingSnap.forEach((d) => {
+      batch.update(d.ref, {
+        status,
+        reviewed_at: serverTimestamp(),
+        reviewed_by: reviewer,
+        rejection_reason: status === "rejected" ? why : "",
+      });
+    });
+    if (status === "approved") {
+      batch.update(doc(db, "Users", uid), { is_verified: true });
+    }
+    await batch.commit();
+  };
+
   const approve = async (s: Submission) => {
     if (!s.uid) return;
     setBusy(true);
+    // Optimistically remove the card so it moves out of pending immediately.
+    setItems((prev) => prev.filter((i) => i.uid !== s.uid));
+    setSelected(null);
     try {
       const reviewer = auth.currentUser?.uid ?? "";
-      await Promise.all([
-        updateDoc(doc(db, "VerificationPhotos", s.id), {
-          status: "approved",
-          reviewed_at: serverTimestamp(),
-          reviewed_by: reviewer,
-          rejection_reason: "",
-        }),
-        updateDoc(doc(db, "Users", s.uid), {
-          is_verified: true,
-        }),
-      ]);
-      setSelected(null);
+      await resolvePending(s.uid, "approved", "", reviewer);
     } catch (e) {
       console.error(e);
       alert("Approve failed. Check console.");
+      setItems((prev) => (prev.some((i) => i.id === s.id) ? prev : [s, ...prev]));
     } finally {
       setBusy(false);
     }
   };
 
   const reject = async (s: Submission, why: string) => {
+    if (!s.uid) return;
     setBusy(true);
+    // Optimistically remove the card so it moves out of pending immediately.
+    setItems((prev) => prev.filter((i) => i.uid !== s.uid));
+    setRejectingId(null);
+    setReason("");
+    setSelected(null);
     try {
       const reviewer = auth.currentUser?.uid ?? "";
-      await updateDoc(doc(db, "VerificationPhotos", s.id), {
-        status: "rejected",
-        reviewed_at: serverTimestamp(),
-        reviewed_by: reviewer,
-        rejection_reason: why,
-      });
-      setRejectingId(null);
-      setReason("");
-      setSelected(null);
+      await resolvePending(s.uid, "rejected", why, reviewer);
     } catch (e) {
       console.error(e);
       alert("Reject failed. Check console.");
+      setItems((prev) => (prev.some((i) => i.id === s.id) ? prev : [s, ...prev]));
     } finally {
       setBusy(false);
     }
