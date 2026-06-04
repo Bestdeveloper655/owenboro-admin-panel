@@ -4,12 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
-  updateDoc,
   where,
   writeBatch,
 } from "firebase/firestore";
@@ -20,6 +20,7 @@ type Submission = {
   uid: string;
   userDisplayName: string;
   photoUrl: string;
+  profilePhotoUrl: string;
   status: "pending" | "approved" | "rejected";
   submittedAt: any;
   reviewedAt?: any;
@@ -47,7 +48,7 @@ export default function Page() {
     );
     const unsub = onSnapshot(
       q,
-      (snap) => {
+      async (snap) => {
         const data: Submission[] = snap.docs.map((d) => {
           const x = d.data() as any;
           return {
@@ -55,6 +56,7 @@ export default function Page() {
             uid: x.uid ?? "",
             userDisplayName: x.user_display_name ?? "",
             photoUrl: x.photo_url ?? "",
+            profilePhotoUrl: x.profile_photo_url ?? "",
             status: x.status ?? "pending",
             submittedAt: x.submitted_at ?? null,
             reviewedAt: x.reviewed_at ?? null,
@@ -74,6 +76,27 @@ export default function Page() {
           seen.add(key);
           deduped.push(s);
         }
+
+        // Backfill the profile picture from the Users doc for older
+        // submissions that didn't snapshot it, so admins can always compare
+        // the live selfie against the user's current profile photo.
+        await Promise.all(
+          deduped.map(async (s) => {
+            if (s.profilePhotoUrl || !s.uid) return;
+            try {
+              const userSnap = await getDoc(doc(db, "Users", s.uid));
+              const u = userSnap.data() as any;
+              const photo =
+                u?.photo_url ||
+                (Array.isArray(u?.photo_urls) ? u.photo_urls[0] : "") ||
+                "";
+              s.profilePhotoUrl = photo;
+            } catch (e) {
+              console.error(e);
+            }
+          }),
+        );
+
         setItems(deduped);
         setLoading(false);
       },
@@ -202,20 +225,48 @@ export default function Page() {
                 <button
                   type="button"
                   onClick={() => setSelected(s)}
-                  className="block aspect-square w-full overflow-hidden rounded-xl bg-black/10"
+                  className="block w-full"
                 >
-                  {s.photoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={s.photoUrl}
-                      alt={s.userDisplayName}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-black/50">
-                      No image
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-black/50">
+                        Live photo
+                      </p>
+                      <div className="aspect-square w-full overflow-hidden rounded-xl bg-black/10">
+                        {s.photoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={s.photoUrl}
+                            alt="Live selfie"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-black/50">
+                            No image
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
+                    <div>
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-black/50">
+                        Profile pic
+                      </p>
+                      <div className="aspect-square w-full overflow-hidden rounded-xl bg-black/10">
+                        {s.profilePhotoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={s.profilePhotoUrl}
+                            alt="Profile picture"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-black/50">
+                            No image
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </button>
 
                 <div className="mt-3">
@@ -308,14 +359,46 @@ export default function Page() {
       {/* PHOTO LIGHTBOX */}
       {selected && (
         <Modal title={selected.userDisplayName || "Submission"} onClose={() => setSelected(null)}>
-          {selected.photoUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={selected.photoUrl}
-              alt=""
-              className="max-h-[70vh] w-full rounded-xl object-contain"
-            />
-          )}
+          <p className="mb-3 text-sm text-black/70">
+            Compare the live photo against the profile picture to confirm they
+            are the same person.
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-black/60">
+                Live photo
+              </p>
+              {selected.photoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={selected.photoUrl}
+                  alt="Live selfie"
+                  className="max-h-[55vh] w-full rounded-xl bg-black/10 object-contain"
+                />
+              ) : (
+                <div className="flex h-40 items-center justify-center rounded-xl bg-black/10 text-sm text-black/50">
+                  No image
+                </div>
+              )}
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-black/60">
+                Profile picture
+              </p>
+              {selected.profilePhotoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={selected.profilePhotoUrl}
+                  alt="Profile picture"
+                  className="max-h-[55vh] w-full rounded-xl bg-black/10 object-contain"
+                />
+              ) : (
+                <div className="flex h-40 items-center justify-center rounded-xl bg-black/10 text-sm text-black/50">
+                  No profile picture
+                </div>
+              )}
+            </div>
+          </div>
           <div className="mt-4 space-y-1 text-sm text-black">
             <p>
               <b>UID:</b> {selected.uid}
@@ -330,6 +413,27 @@ export default function Page() {
                 : "-"}
             </p>
           </div>
+          {selected.status === "pending" && (
+            <div className="mt-5 flex gap-2">
+              <button
+                disabled={busy}
+                onClick={() => approve(selected)}
+                className="flex-1 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+              >
+                Approve
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => {
+                  setRejectingId(selected.id);
+                  setReason("");
+                }}
+                className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                Reject
+              </button>
+            </div>
+          )}
         </Modal>
       )}
     </div>

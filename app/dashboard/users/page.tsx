@@ -11,6 +11,7 @@ type User = {
   phone: string;
   uid: string;
   createdAt: any;
+  isVerified: boolean;
 };
 
 export default function Page() {
@@ -36,6 +37,7 @@ useEffect(() => {
         phone: x.phone_number || "",
         uid: x.uid || "",
         createdAt: x.created_time || null,
+        isVerified: x.is_verified === true,
       };
     });
 
@@ -140,7 +142,12 @@ useEffect(() => {
                       key={u.id}
                       className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
                     >
-                      <td className="p-3 font-semibold">{u.name}</td>
+                      <td className="p-3 font-semibold">
+                        <span className="inline-flex items-center gap-1.5">
+                          {u.name}
+                          {u.isVerified && <VerifiedBadge />}
+                        </span>
+                      </td>
                       <td className="p-3 text-[#ff7a59]">{u.email}</td>
                       <td className="p-3">{u.phone}</td>
                       <td className="p-3 text-xs">{u.uid}</td>
@@ -222,7 +229,13 @@ useEffect(() => {
       {selected && (
         <Modal title="User Details" onClose={() => setSelected(null)}>
           <div className="space-y-3 text-black">
-            <p><b>Name:</b> {selected.name}</p>
+            <p className="flex items-center gap-2">
+              <b>Name:</b> {selected.name}
+              {selected.isVerified && <VerifiedBadge />}
+            </p>
+            <p>
+              <b>Verified:</b> {selected.isVerified ? "Yes" : "No"}
+            </p>
             <p><b>Email:</b> {selected.email}</p>
             <p><b>Phone:</b> {selected.phone}</p>
             <p><b>UID:</b> {selected.uid}</p>
@@ -236,6 +249,28 @@ useEffect(() => {
         </Modal>
       )}
     </div>
+  );
+}
+
+/* VERIFIED BADGE — blue check shown next to verified users */
+function VerifiedBadge() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="inline-block h-4 w-4 shrink-0"
+      aria-label="Verified"
+      role="img"
+    >
+      <title>Verified</title>
+      <path
+        fill="#1E88E5"
+        d="M12 2l2.39 1.74 2.95-.02 1.06 2.79 2.65 1.31-.55 2.94L23 12l-2.45 1.24.55 2.94-2.65 1.31-1.06 2.79-2.95-.02L12 22l-2.39-1.74-2.95.02-1.06-2.79L2.95 16.18 3.5 13.24 1 12l2.45-1.24-.55-2.94 2.65-1.31L6.61 3.72l2.95.02L12 2z"
+      />
+      <path
+        fill="#fff"
+        d="M10.6 14.6l-2.3-2.3-1.1 1.1 3.4 3.4 6-6-1.1-1.1z"
+      />
+    </svg>
   );
 }
 
