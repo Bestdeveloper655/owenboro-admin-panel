@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   doc,
+  getCountFromServer,
   getDoc,
   onSnapshot,
   orderBy,
@@ -21,6 +22,7 @@ type Report = {
   id: string;
   reporterId: string;
   reporterName: string;
+  reporterMessage: string;
   reportedUserId: string;
   reportedUserName: string;
   source: ReportSource;
@@ -39,8 +41,13 @@ type Report = {
 type ReportedProfile = {
   displayName: string;
   photoUrl: string;
+  photoUrls: string[];
+  age: string;
+  gender: string;
+  bio: string;
   email: string;
   isBanned: boolean;
+  reportCount: number;
 };
 
 type Tab = "pending" | "reviewed" | "dismissed" | "action_taken";
@@ -97,6 +104,7 @@ export default function Page() {
             id: d.id,
             reporterId: x.reporter_uid ?? "",
             reporterName: x.reporter_name ?? "",
+            reporterMessage: x.reporter_message ?? "",
             reportedUserId: x.reported_uid ?? "",
             reportedUserName: x.reported_name ?? "",
             source: x.source ?? "unknown",
@@ -133,24 +141,46 @@ export default function Page() {
       }
       setProfileLoading(true);
       try {
+        // Count how many times this user has been reported (all statuses).
+        const countSnap = await getCountFromServer(
+          query(
+            collection(db, "reports"),
+            where("reported_uid", "==", selected.reportedUserId),
+          ),
+        );
+        const reportCount = countSnap.data().count;
+
         const snap = await getDoc(doc(db, "Users", selected.reportedUserId));
         if (cancelled) return;
         if (!snap.exists()) {
           setProfile({
             displayName: selected.reportedUserName || "Unknown",
             photoUrl: "",
+            photoUrls: [],
+            age: "",
+            gender: "",
+            bio: "",
             email: "",
             isBanned: false,
+            reportCount,
           });
           return;
         }
         const x = snap.data() as any;
+        const photoUrls: string[] = Array.isArray(x.photo_urls)
+          ? x.photo_urls.filter((u: any) => typeof u === "string" && u)
+          : [];
         setProfile({
           displayName:
             x.display_name || x.full_name || selected.reportedUserName || "Unknown",
-          photoUrl: x.photo_url || "",
+          photoUrl: x.photo_url || photoUrls[0] || "",
+          photoUrls,
+          age: x.age != null ? String(x.age) : "",
+          gender: x.gender || "",
+          bio: x.bio || "",
           email: x.email || "",
           isBanned: x.is_banned === true,
+          reportCount,
         });
       } catch (e) {
         console.error(e);
@@ -313,6 +343,16 @@ export default function Page() {
                 <p className="text-sm text-black/70">
                   By: {r.reporterName || r.reporterId || "Unknown"}
                 </p>
+                {r.reporterMessage && (
+                  <div className="mt-3 rounded-lg border border-[#ff7a59]/40 bg-[#ff7a59]/10 p-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#c0392b]">
+                      Reason
+                    </p>
+                    <p className="line-clamp-3 text-sm text-black/80">
+                      {r.reporterMessage}
+                    </p>
+                  </div>
+                )}
                 {r.messageText && (
                   <p className="mt-3 line-clamp-3 rounded-lg bg-black/5 p-2 text-sm italic text-black/80">
                     “{r.messageText}”
@@ -345,37 +385,90 @@ export default function Page() {
               {profileLoading ? (
                 <p>Loading profile...</p>
               ) : profile ? (
-                <div className="flex gap-4">
-                  <div className="h-20 w-20 overflow-hidden rounded-full bg-black/10">
-                    {profile.photoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={profile.photoUrl}
-                        alt={profile.displayName}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-xs text-black/50">
-                        No photo
+                <div className="space-y-4">
+                  <div className="flex gap-4">
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-black/10">
+                      {profile.photoUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={profile.photoUrl}
+                          alt={profile.displayName}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center text-xs text-black/50">
+                          No photo
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-base font-semibold">
+                        {profile.displayName}
+                      </p>
+                      <p className="text-xs text-black/70">
+                        {[
+                          profile.age && `Age ${profile.age}`,
+                          profile.gender,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "Age/gender not set"}
+                      </p>
+                      {profile.email && (
+                        <p className="text-xs text-black/60">{profile.email}</p>
+                      )}
+                      <p className="break-all text-xs text-black/60">
+                        UID: {selected.reportedUserId}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${
+                            profile.reportCount > 1
+                              ? "bg-[#c0392b] text-white"
+                              : "bg-black/10 text-black/70"
+                          }`}
+                        >
+                          Reported {profile.reportCount}×
+                        </span>
+                        {profile.isBanned && (
+                          <span className="inline-block rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white">
+                            Banned
+                          </span>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
-                  <div className="flex-1">
-                    <p className="text-base font-semibold">
-                      {profile.displayName}
-                    </p>
-                    {profile.email && (
-                      <p className="text-xs text-black/60">{profile.email}</p>
-                    )}
-                    <p className="break-all text-xs text-black/60">
-                      UID: {selected.reportedUserId}
-                    </p>
-                    {profile.isBanned && (
-                      <span className="mt-2 inline-block rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white">
-                        Banned
-                      </span>
-                    )}
-                  </div>
+
+                  {profile.photoUrls.length > 1 && (
+                    <div className="flex flex-wrap gap-2">
+                      {profile.photoUrls.map((url, i) => (
+                        <a
+                          key={i}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="h-16 w-16 overflow-hidden rounded-lg bg-black/10"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`Photo ${i + 1}`}
+                            className="h-full w-full object-cover"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  {profile.bio && (
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-black/50">
+                        Bio
+                      </p>
+                      <p className="whitespace-pre-wrap text-sm text-black/80">
+                        {profile.bio}
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-black/60">No profile data.</p>
@@ -420,6 +513,19 @@ export default function Page() {
                     </p>
                   )}
                 </>
+              )}
+            </section>
+
+            <section className="rounded-2xl bg-white/60 p-4">
+              <h3 className="mb-2 font-semibold text-[#ff7a59]">
+                Reason from reporter
+              </h3>
+              {selected.reporterMessage ? (
+                <p className="whitespace-pre-wrap rounded-lg bg-[#ff7a59]/10 p-3 text-black/90">
+                  {selected.reporterMessage}
+                </p>
+              ) : (
+                <p className="text-black/50">No message provided.</p>
               )}
             </section>
 
