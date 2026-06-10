@@ -12,6 +12,7 @@ import {
   doc,
   query,
   orderBy,
+  onSnapshot,
 } from "firebase/firestore";
 import {
   ref,
@@ -29,6 +30,8 @@ import { db, storage } from "@/lib/firebaseServices";
  */
 const DEFAULT_MEMBER_UID = "alw3WyINMrYe3njG6H0c7IzSCo52";
 const DEFAULT_MEMBER_EMAIL = "jag42303@gmail.com";
+
+const MAX_FEATURED = 3;
 
 /** Add the default member to a freshly created group. */
 async function addDefaultMember(groupId: string) {
@@ -62,6 +65,8 @@ async function addDefaultMember(groupId: string) {
   }
 }
 
+type FeaturedListing = { id: string; name: string; image: string };
+
 type Group = {
   id: string;
   name: string;
@@ -71,6 +76,8 @@ type Group = {
   status: "active" | "inactive";
   createdAt?: any;
   memberCount?: number;
+  messagingPaused: boolean;
+  featuredListings: FeaturedListing[];
 };
 
 type Member = {
@@ -82,6 +89,8 @@ type Member = {
   status: "active" | "removed";
 };
 
+type Listing = { id: string; name: string; image: string };
+
 export default function Page() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -90,6 +99,7 @@ export default function Page() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Group | null>(null);
   const [deleting, setDeleting] = useState<Group | null>(null);
+  const [listingFor, setListingFor] = useState<Group | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saveLoading, setSaveLoading] = useState(false);
@@ -97,12 +107,17 @@ export default function Page() {
   const [file, setFile] = useState<File | null>(null);
   const [oldImage, setOldImage] = useState<string>("");
 
-  const [form, setForm] = useState({
-    name: "",
-    description: "",
-  });
-
+  const [form, setForm] = useState({ name: "", description: "" });
   const [error, setError] = useState("");
+
+  // 3-dot action menu (anchored, fixed-position to avoid table clipping).
+  const [menu, setMenu] = useState<{ group: Group; x: number; y: number } | null>(
+    null,
+  );
+
+  // Global "pause all messaging" flag from app_config/mobile.
+  const [pauseAll, setPauseAll] = useState(false);
+  const [pauseAllBusy, setPauseAllBusy] = useState(false);
 
   const [page, setPage] = useState(1);
   const perPage = 9;
@@ -121,7 +136,6 @@ export default function Page() {
           snap.docs.map(async (d) => {
             const x = d.data();
 
-            // Fetch member count for this group
             let memberCount = 0;
             try {
               const membersSnap = await getDocs(
@@ -142,8 +156,12 @@ export default function Page() {
               imagePath: x.imagePath || "",
               status: x.status || "active",
               createdAt: x.createdAt || null,
-              memberCount: memberCount,
-            };
+              memberCount,
+              messagingPaused: x.messaging_paused === true,
+              featuredListings: Array.isArray(x.featured_listings)
+                ? (x.featured_listings as FeaturedListing[])
+                : [],
+            } as Group;
           })
         );
 
@@ -159,13 +177,44 @@ export default function Page() {
     fetchGroups();
   }, []);
 
+  /* GLOBAL PAUSE — live read of app_config/mobile (client read is allowed) */
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "app_config", "mobile"), (snap) => {
+      setPauseAll(snap.data()?.messaging_paused === true);
+    });
+    return () => unsub();
+  }, []);
+
+  const togglePauseAll = async () => {
+    const next = !pauseAll;
+    setPauseAllBusy(true);
+    try {
+      // Written directly by the signed-in moderator/admin; Firestore rules
+      // permit toggling only this flag on app_config/mobile. setDoc(merge)
+      // creates the doc on the very first toggle if it doesn't exist yet.
+      await setDoc(
+        doc(db, "app_config", "mobile"),
+        { messaging_paused: next, updatedAt: serverTimestamp() },
+        { merge: true },
+      );
+      // onSnapshot will reflect the new value; set optimistically too.
+      setPauseAll(next);
+    } catch (e) {
+      console.error(e);
+      setError(
+        "Failed to update global messaging pause. Make sure the app config exists (App Config page).",
+      );
+    } finally {
+      setPauseAllBusy(false);
+    }
+  };
+
   /* FETCH MEMBERS */
   const fetchMembers = async (groupId: string) => {
     try {
       const membersSnap = await getDocs(
         collection(db, "Groups", groupId, "members")
       );
-
       const data = membersSnap.docs.map((d) => {
         const x = d.data();
         return {
@@ -177,19 +226,16 @@ export default function Page() {
           status: x.status || "active",
         };
       });
-
-      const activeMembers = data.filter((m) => m.status === "active");
-      setMembers(activeMembers);
+      setMembers(data.filter((m) => m.status === "active"));
     } catch (err) {
       console.error("Error fetching members:", err);
       setError("Failed to fetch members");
     }
   };
 
-  /* UPLOAD IMAGE */
+  /* UPLOAD / DELETE IMAGE */
   const uploadImage = async (): Promise<{ url: string; path: string }> => {
     if (!file) return { url: "", path: "" };
-
     try {
       const path = `groups/${Date.now()}-${file.name}`;
       const r = ref(storage, path);
@@ -202,7 +248,6 @@ export default function Page() {
     }
   };
 
-  /* DELETE IMAGE */
   const deleteImage = async (path: string) => {
     if (!path) return;
     try {
@@ -219,13 +264,10 @@ export default function Page() {
       setError("Group name is required");
       return;
     }
-
     try {
       setSaveLoading(true);
-
       let imageUrl = "";
       let imagePath = "";
-
       if (file) {
         const upload = await uploadImage();
         imageUrl = upload.url;
@@ -236,14 +278,12 @@ export default function Page() {
         name: form.name.trim(),
         description: form.description.trim(),
         image: imageUrl,
-        imagePath: imagePath,
+        imagePath,
         status: "active",
         createdAt: serverTimestamp(),
       };
 
       const docRef = await addDoc(collection(db, "Groups"), newGroup);
-
-      // Automatically add the default member to every new group.
       await addDefaultMember(docRef.id);
 
       setGroups((prev) => [
@@ -252,6 +292,8 @@ export default function Page() {
           ...newGroup,
           createdAt: new Date(),
           memberCount: 1,
+          messagingPaused: false,
+          featuredListings: [],
         } as Group,
         ...prev,
       ]);
@@ -272,19 +314,13 @@ export default function Page() {
       setError("Group name is required");
       return;
     }
-
     if (!editing) return;
-
     try {
       setSaveLoading(true);
-
       let imageUrl = editing.image;
       let imagePath = editing.imagePath;
-
       if (file) {
-        if (editing.imagePath) {
-          await deleteImage(editing.imagePath);
-        }
+        if (editing.imagePath) await deleteImage(editing.imagePath);
         const upload = await uploadImage();
         imageUrl = upload.url;
         imagePath = upload.path;
@@ -294,17 +330,13 @@ export default function Page() {
         name: form.name.trim(),
         description: form.description.trim(),
         image: imageUrl,
-        imagePath: imagePath,
+        imagePath,
       };
 
       await updateDoc(doc(db, "Groups", editing.id), updatedData);
-
       setGroups((prev) =>
-        prev.map((g) =>
-          g.id === editing.id ? { ...g, ...updatedData } : g
-        )
+        prev.map((g) => (g.id === editing.id ? { ...g, ...updatedData } : g))
       );
-
       closeModal();
     } catch (err) {
       console.error("Error updating group:", err);
@@ -314,16 +346,13 @@ export default function Page() {
     }
   };
 
-  /* TOGGLE STATUS */
+  /* TOGGLE STATUS (activate / deactivate) */
   const toggleStatus = async (group: Group) => {
     try {
       const newStatus = group.status === "active" ? "inactive" : "active";
       await updateDoc(doc(db, "Groups", group.id), { status: newStatus });
-
       setGroups((prev) =>
-        prev.map((g) =>
-          g.id === group.id ? { ...g, status: newStatus } : g
-        )
+        prev.map((g) => (g.id === group.id ? { ...g, status: newStatus } : g))
       );
     } catch (err) {
       console.error("Error toggling status:", err);
@@ -331,19 +360,41 @@ export default function Page() {
     }
   };
 
+  /* TOGGLE PER-GROUP MESSAGE PAUSE */
+  const toggleGroupPause = async (group: Group) => {
+    try {
+      const next = !group.messagingPaused;
+      await updateDoc(doc(db, "Groups", group.id), { messaging_paused: next });
+      setGroups((prev) =>
+        prev.map((g) =>
+          g.id === group.id ? { ...g, messagingPaused: next } : g
+        )
+      );
+    } catch (err) {
+      console.error("Error pausing group:", err);
+      setError("Failed to pause group messaging");
+    }
+  };
+
+  /* SAVE FEATURED LISTINGS for a group */
+  const saveListings = async (group: Group, listings: FeaturedListing[]) => {
+    await updateDoc(doc(db, "Groups", group.id), {
+      featured_listings: listings,
+    });
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.id === group.id ? { ...g, featuredListings: listings } : g
+      )
+    );
+  };
+
   /* DELETE GROUP */
   const confirmDelete = async () => {
     if (!deleting) return;
-
     try {
       setDeleteLoading(true);
-
-      if (deleting.imagePath) {
-        await deleteImage(deleting.imagePath);
-      }
-
+      if (deleting.imagePath) await deleteImage(deleting.imagePath);
       await deleteDoc(doc(db, "Groups", deleting.id));
-
       setGroups((prev) => prev.filter((g) => g.id !== deleting.id));
       setDeleting(null);
     } catch (err) {
@@ -357,23 +408,16 @@ export default function Page() {
   /* REMOVE MEMBER */
   const removeMember = async (memberId: string) => {
     if (!viewingMembers) return;
-
     try {
       await updateDoc(
         doc(db, "Groups", viewingMembers.id, "members", memberId),
         { status: "removed" }
       );
-
       setMembers((prev) => prev.filter((m) => m.id !== memberId));
-
-      // Update member count for this group
       setGroups((prev) =>
         prev.map((g) =>
           g.id === viewingMembers.id
-            ? {
-                ...g,
-                memberCount: Math.max(0, (g.memberCount || 0) - 1),
-              }
+            ? { ...g, memberCount: Math.max(0, (g.memberCount || 0) - 1) }
             : g
         )
       );
@@ -383,7 +427,7 @@ export default function Page() {
     }
   };
 
-  /* CLOSE MODAL */
+  /* MODAL HELPERS */
   const closeModal = () => {
     setAdding(false);
     setEditing(null);
@@ -393,18 +437,13 @@ export default function Page() {
     setError("");
   };
 
-  /* OPEN EDIT MODAL */
   const openEdit = (group: Group) => {
     setEditing(group);
-    setForm({
-      name: group.name,
-      description: group.description,
-    });
+    setForm({ name: group.name, description: group.description });
     setOldImage(group.image || "");
     setAdding(false);
   };
 
-  /* OPEN MEMBERS MODAL */
   const openMembers = async (group: Group) => {
     setViewingMembers(group);
     await fetchMembers(group.id);
@@ -412,11 +451,15 @@ export default function Page() {
 
   /* PAGINATION */
   const totalPages = Math.max(1, Math.ceil(groups.length / perPage));
-
   const paginated = useMemo(() => {
     const start = (page - 1) * perPage;
     return groups.slice(start, start + perPage);
   }, [groups, page]);
+
+  const openMenu = (e: React.MouseEvent, g: Group) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setMenu({ group: g, x: r.right, y: r.bottom });
+  };
 
   return (
     <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
@@ -442,6 +485,46 @@ export default function Page() {
           className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white sm:self-auto sm:px-5 sm:text-base"
         >
           + Create Group
+        </button>
+      </div>
+
+      {/* GLOBAL PAUSE-ALL */}
+      <div
+        className={`mb-6 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
+          pauseAll
+            ? "border-red-500/60 bg-red-500/10"
+            : "border-[#ff7a59]/40 bg-[#0a0a0a]"
+        }`}
+      >
+        <div>
+          <p className="text-base font-semibold text-white">
+            Pause all messaging
+          </p>
+          <p className="text-sm text-[#e8dcc7]/70">
+            Stops new messages in <b>every group and direct chat</b> until you
+            turn it back on.
+          </p>
+        </div>
+        <button
+          onClick={togglePauseAll}
+          disabled={pauseAllBusy}
+          className="inline-flex items-center gap-3 self-start disabled:opacity-50"
+          aria-pressed={pauseAll}
+        >
+          <span
+            className={`relative h-7 w-12 rounded-full transition ${
+              pauseAll ? "bg-red-500" : "bg-white/20"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${
+                pauseAll ? "left-[22px]" : "left-0.5"
+              }`}
+            />
+          </span>
+          <span className="text-sm font-semibold text-white">
+            {pauseAllBusy ? "Saving…" : pauseAll ? "Paused" : "Active"}
+          </span>
         </button>
       </div>
 
@@ -479,15 +562,28 @@ export default function Page() {
                         {g.description || "-"}
                       </td>
                       <td className="p-3">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            g.status === "active"
-                              ? "bg-green-500/20 text-green-400"
-                              : "bg-red-500/20 text-red-400"
-                          }`}
-                        >
-                          {g.status === "active" ? "Active" : "Inactive"}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              g.status === "active"
+                                ? "bg-green-500/20 text-green-700"
+                                : "bg-red-500/20 text-red-600"
+                            }`}
+                          >
+                            {g.status === "active" ? "Active" : "Inactive"}
+                          </span>
+                          {g.messagingPaused && (
+                            <span className="rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-bold uppercase text-amber-700">
+                              Msgs paused
+                            </span>
+                          )}
+                          {g.featuredListings.length > 0 && (
+                            <span className="rounded-full bg-[#ff7a59]/20 px-2 py-1 text-[10px] font-bold uppercase text-[#c2410c]">
+                              {g.featuredListings.length} listing
+                              {g.featuredListings.length === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3 text-sm">{g.memberCount || 0}</td>
                       <td className="p-3 text-black/60">
@@ -497,37 +593,21 @@ export default function Page() {
                       </td>
 
                       <td className="p-3 text-right">
-                        <div className="flex gap-2 justify-end">
+                        <div className="flex items-center gap-2 justify-end">
                           <button
                             onClick={() => openEdit(g)}
-                            className="rounded-lg bg-[#ff7a59] px-2 py-1 text-white text-xs"
+                            className="rounded-lg bg-[#ff7a59] px-3 py-1 text-white text-xs"
                           >
                             Edit
                           </button>
 
+                          {/* 3-DOT MENU */}
                           <button
-                            onClick={() => toggleStatus(g)}
-                            className={`rounded-lg px-2 py-1 text-white text-xs ${
-                              g.status === "active"
-                                ? "bg-red-600"
-                                : "bg-green-600"
-                            }`}
+                            onClick={(e) => openMenu(e, g)}
+                            aria-label="More actions"
+                            className="rounded-lg border border-black/20 px-2 py-1 text-black hover:bg-black/5"
                           >
-                            {g.status === "active" ? "Deactivate" : "Activate"}
-                          </button>
-
-                          <button
-                            onClick={() => openMembers(g)}
-                            className="rounded-lg bg-blue-600 px-2 py-1 text-white text-xs"
-                          >
-                            Members
-                          </button>
-
-                          <button
-                            onClick={() => setDeleting(g)}
-                            className="rounded-lg bg-red-600 px-2 py-1 text-white text-xs hover:bg-red-700"
-                          >
-                            Delete
+                            <span className="text-lg leading-none">⋮</span>
                           </button>
                         </div>
                       </td>
@@ -555,14 +635,8 @@ export default function Page() {
 
                 {Array.from({ length: totalPages }).map((_, i) => {
                   const p = i + 1;
-
-                  if (
-                    p !== 1 &&
-                    p !== totalPages &&
-                    Math.abs(p - page) > 1
-                  )
+                  if (p !== 1 && p !== totalPages && Math.abs(p - page) > 1)
                     return null;
-
                   return (
                     <button
                       key={p}
@@ -591,9 +665,71 @@ export default function Page() {
         )}
       </section>
 
+      {/* 3-DOT ACTION MENU (fixed overlay, won't be clipped by the table) */}
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
+          <div
+            className="fixed z-50 w-52 overflow-hidden rounded-xl border border-black/10 bg-white py-1 text-sm text-black shadow-xl"
+            style={{ top: menu.y + 6, left: Math.max(8, menu.x - 208) }}
+          >
+            <MenuItem
+              onClick={() => {
+                toggleGroupPause(menu.group);
+                setMenu(null);
+              }}
+            >
+              {menu.group.messagingPaused
+                ? "▶  Resume messages"
+                : "⏸  Pause messages"}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setListingFor(menu.group);
+                setMenu(null);
+              }}
+            >
+              ＋  Add listing
+              {menu.group.featuredListings.length > 0
+                ? ` (${menu.group.featuredListings.length}/${MAX_FEATURED})`
+                : ""}
+            </MenuItem>
+            <div className="my-1 border-t border-black/10" />
+            <MenuItem
+              onClick={() => {
+                toggleStatus(menu.group);
+                setMenu(null);
+              }}
+            >
+              {menu.group.status === "active" ? "Deactivate" : "Activate"}
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                openMembers(menu.group);
+                setMenu(null);
+              }}
+            >
+              Members
+            </MenuItem>
+            <MenuItem
+              danger
+              onClick={() => {
+                setDeleting(menu.group);
+                setMenu(null);
+              }}
+            >
+              Delete
+            </MenuItem>
+          </div>
+        </>
+      )}
+
       {/* CREATE/EDIT MODAL */}
       {(adding || editing) && (
-        <Modal title={editing ? "Edit Group" : "Create Group"} onClose={closeModal}>
+        <Modal
+          title={editing ? "Edit Group" : "Create Group"}
+          onClose={closeModal}
+        >
           {error && (
             <p className="mb-4 p-3 bg-red-500/20 text-red-400 rounded-lg text-sm">
               {error}
@@ -604,7 +740,9 @@ export default function Page() {
             <Input
               label="Group Name *"
               value={form.name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, name: e.target.value })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setForm({ ...form, name: e.target.value })
+              }
               placeholder="Enter group name"
             />
 
@@ -624,11 +762,7 @@ export default function Page() {
               {(file || oldImage) && (
                 <div className="mb-3 relative w-20 h-20">
                   <img
-                    src={
-                      file
-                        ? URL.createObjectURL(file)
-                        : oldImage
-                    }
+                    src={file ? URL.createObjectURL(file) : oldImage}
                     alt="preview"
                     className="w-full h-full object-cover rounded-lg"
                   />
@@ -671,7 +805,6 @@ export default function Page() {
             Are you sure you want to delete <b>{deleting.name}</b>? This action
             cannot be undone.
           </p>
-
           <div className="flex gap-3">
             <button
               onClick={() => setDeleting(null)}
@@ -679,7 +812,6 @@ export default function Page() {
             >
               Cancel
             </button>
-
             <button
               onClick={confirmDelete}
               disabled={deleteLoading}
@@ -713,7 +845,6 @@ export default function Page() {
                     <th className="p-2 text-right">Action</th>
                   </tr>
                 </thead>
-
                 <tbody>
                   {members.map((m) => (
                     <tr key={m.id} className="border-b">
@@ -724,7 +855,6 @@ export default function Page() {
                           ? m.joinedAt.toDate().toLocaleDateString()
                           : "-"}
                       </td>
-
                       <td className="p-2 text-right">
                         <button
                           onClick={() => removeMember(m.id)}
@@ -741,15 +871,186 @@ export default function Page() {
           )}
         </Modal>
       )}
+
+      {/* ADD LISTING MODAL */}
+      {listingFor && (
+        <ListingPickerModal
+          group={listingFor}
+          onClose={() => setListingFor(null)}
+          onSave={async (listings) => {
+            await saveListings(listingFor, listings);
+            setListingFor(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/* MENU ITEM */
+function MenuItem({
+  children,
+  onClick,
+  danger = false,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`block w-full px-4 py-2 text-left hover:bg-black/5 ${
+        danger ? "text-red-600 font-semibold" : "text-black"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* LISTING PICKER — choose up to 3 listings to feature in a group's chat */
+function ListingPickerModal({
+  group,
+  onClose,
+  onSave,
+}: {
+  group: Group;
+  onClose: () => void;
+  onSave: (listings: FeaturedListing[]) => Promise<void>;
+}) {
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<FeaturedListing[]>(
+    group.featuredListings || [],
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const snap = await getDocs(collection(db, "Products"));
+        const data = snap.docs.map((d) => {
+          const x = d.data();
+          return {
+            id: d.id,
+            name: x.productName || "(untitled)",
+            image: x.imageUrl || "",
+          };
+        });
+        data.sort((a, b) => a.name.localeCompare(b.name));
+        setListings(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return listings;
+    return listings.filter((l) => l.name.toLowerCase().includes(q));
+  }, [listings, search]);
+
+  const isSelected = (id: string) => selected.some((s) => s.id === id);
+
+  const toggle = (l: Listing) => {
+    if (isSelected(l.id)) {
+      setSelected((prev) => prev.filter((s) => s.id !== l.id));
+    } else if (selected.length < MAX_FEATURED) {
+      setSelected((prev) => [...prev, { id: l.id, name: l.name, image: l.image }]);
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(selected);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save listings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title={`Listings for ${group.name}`} onClose={onClose}>
+      <p className="mb-3 text-sm text-black/70">
+        Pick up to {MAX_FEATURED} listings to feature in this group&apos;s chat.
+        Selected: <b>{selected.length}/{MAX_FEATURED}</b>
+      </p>
+
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search listings…"
+        className="mb-3 w-full rounded-lg border border-black/20 px-3 py-2 text-sm text-black placeholder-black/40"
+      />
+
+      {loading ? (
+        <p className="py-6 text-center text-black/60">Loading listings…</p>
+      ) : (
+        <div className="max-h-80 space-y-2 overflow-y-auto">
+          {filtered.map((l) => {
+            const sel = isSelected(l.id);
+            const disabled = !sel && selected.length >= MAX_FEATURED;
+            return (
+              <button
+                key={l.id}
+                onClick={() => toggle(l)}
+                disabled={disabled}
+                className={`flex w-full items-center gap-3 rounded-lg border p-2 text-left transition ${
+                  sel
+                    ? "border-[#ff7a59] bg-[#ff7a59]/10"
+                    : disabled
+                    ? "border-black/10 opacity-40"
+                    : "border-black/10 hover:bg-black/5"
+                }`}
+              >
+                {l.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={l.image}
+                    alt=""
+                    className="h-10 w-10 rounded-md object-cover"
+                  />
+                ) : (
+                  <div className="h-10 w-10 rounded-md bg-black/10" />
+                )}
+                <span className="flex-1 text-sm font-medium text-black">
+                  {l.name}
+                </span>
+                {sel && <span className="text-[#ff7a59]">✓</span>}
+              </button>
+            );
+          })}
+          {filtered.length === 0 && (
+            <p className="py-6 text-center text-black/50">No listings found.</p>
+          )}
+        </div>
+      )}
+
+      <button
+        onClick={save}
+        disabled={saving}
+        className="mt-6 w-full rounded-xl bg-[#ff7a59] py-3 font-semibold text-white disabled:opacity-50"
+      >
+        {saving ? "Saving…" : "Save listings"}
+      </button>
+    </Modal>
   );
 }
 
 /* MODAL */
 function Modal({ children, title, onClose }: any) {
   return (
-    <div className="fixed inset-0 bg-black/70 flex justify-center items-center z-50">
-      <div className="bg-[#e8dcc7] p-6 rounded-3xl w-[90%] max-w-lg text-black">
+    <div className="fixed inset-0 bg-black/70 flex justify-center items-center z-50 p-4">
+      <div className="bg-[#e8dcc7] p-6 rounded-3xl w-[90%] max-w-lg max-h-[90vh] overflow-y-auto text-black">
         <div className="flex justify-between mb-4">
           <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
           <button onClick={onClose} className="text-2xl">

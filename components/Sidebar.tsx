@@ -26,7 +26,7 @@ const menuItems: MenuItem[] = [
   { name: "Notifications", path: "/dashboard/notifications" },
   { name: "App Config", path: "/dashboard/app-config" },
   { name: "Groups", path: "/dashboard/groups" },
-  { name: "Group Polls", path: "/dashboard/polls" },
+  { name: "Polls & Questions", path: "/dashboard/polls" },
   { name: "Reports", path: "/dashboard/reports" },
   { name: "Moderators", path: "/dashboard/moderators", adminOnly: true },
 ];

@@ -79,7 +79,7 @@ export default function Page() {
 
         // Backfill the profile picture from the Users doc for older
         // submissions that didn't snapshot it, so admins can always compare
-        // the live selfie against the user's current profile photo.
+        // the ID photo against the user's current profile photo.
         await Promise.all(
           deduped.map(async (s) => {
             if (s.profilePhotoUrl || !s.uid) return;
@@ -230,14 +230,14 @@ export default function Page() {
                   <div className="grid grid-cols-2 gap-1.5">
                     <div>
                       <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-black/50">
-                        Live photo
+                        ID photo
                       </p>
                       <div className="aspect-square w-full overflow-hidden rounded-xl bg-black/10">
                         {s.photoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={s.photoUrl}
-                            alt="Live selfie"
+                            alt="ID photo"
                             className="h-full w-full object-cover"
                           />
                         ) : (
@@ -360,19 +360,19 @@ export default function Page() {
       {selected && (
         <Modal title={selected.userDisplayName || "Submission"} onClose={() => setSelected(null)}>
           <p className="mb-3 text-sm text-black/70">
-            Compare the live photo against the profile picture to confirm they
-            are the same person.
+            Compare the ID photo against the profile picture to confirm the
+            user&apos;s identity.
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-black/60">
-                Live photo
+                ID photo
               </p>
               {selected.photoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={selected.photoUrl}
-                  alt="Live selfie"
+                  alt="ID photo"
                   className="max-h-[55vh] w-full rounded-xl bg-black/10 object-contain"
                 />
               ) : (
