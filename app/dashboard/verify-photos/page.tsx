@@ -13,7 +13,8 @@ import {
   where,
   writeBatch,
 } from "firebase/firestore";
-import { auth, db } from "@/lib/firebaseServices";
+import { deleteObject, ref } from "firebase/storage";
+import { auth, db, storage } from "@/lib/firebaseServices";
 
 type Submission = {
   id: string;
@@ -108,8 +109,22 @@ export default function Page() {
     return () => unsub();
   }, [tab]);
 
+  // Best-effort delete of a Storage object given its download URL. ID photos
+  // must never be retained, so a failure here is logged but not surfaced —
+  // the Firestore URL is cleared regardless.
+  const safelyDeletePhoto = async (url?: string) => {
+    if (!url) return;
+    try {
+      await deleteObject(ref(storage, url));
+    } catch (err) {
+      console.error("ID photo delete skipped/failed:", err);
+    }
+  };
+
   // Resolve every pending submission for a user in one batch, so older
   // duplicate submissions don't resurface in the pending tab afterwards.
+  // The ID photo is deleted from Storage and its URL cleared from Firestore so
+  // identity photos are never retained after a decision.
   const resolvePending = async (
     uid: string,
     status: "approved" | "rejected",
@@ -123,6 +138,12 @@ export default function Page() {
         where("status", "==", "pending"),
       ),
     );
+
+    // Delete every ID photo file from Storage before clearing the references.
+    await Promise.all(
+      pendingSnap.docs.map((d) => safelyDeletePhoto((d.data() as any).photo_url)),
+    );
+
     const batch = writeBatch(db);
     pendingSnap.forEach((d) => {
       batch.update(d.ref, {
@@ -130,6 +151,9 @@ export default function Page() {
         reviewed_at: serverTimestamp(),
         reviewed_by: reviewer,
         rejection_reason: status === "rejected" ? why : "",
+        // Do not store the ID photo once a decision is made.
+        photo_url: "",
+        photo_deleted_at: serverTimestamp(),
       });
     });
     if (status === "approved") {
