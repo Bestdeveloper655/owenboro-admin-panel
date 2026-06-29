@@ -14,6 +14,7 @@ import {
   where,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebaseServices";
+import { notifyModeration } from "@/lib/moderationNotify";
 
 type ReportStatus = "pending" | "reviewed" | "dismissed" | "action_taken";
 type ReportSource = "direct_message" | "group_chat" | "profile" | string;
@@ -296,6 +297,13 @@ export default function Page() {
         moderator_notes: note.trim() || report.moderatorNotes || "",
         ...(extras ?? {}),
       });
+      // Notify the reported user when their case is marked reviewed.
+      if (nextStatus === "reviewed") {
+        await notifyModeration({
+          uid: report.reportedUserId,
+          event: "report_reviewed",
+        });
+      }
       setSelected(null);
       setNote("");
     } catch (e) {
@@ -332,6 +340,11 @@ export default function Page() {
           moderator_notes: note.trim() || "User banned.",
         }),
       ]);
+      await notifyModeration({
+        uid: report.reportedUserId,
+        event: "banned",
+        reason: note.trim(),
+      });
       setSelected(null);
       setNote("");
     } catch (e) {
@@ -352,6 +365,10 @@ export default function Page() {
         is_banned: false,
         unbanned_at: serverTimestamp(),
         unbanned_by: reviewer,
+      });
+      await notifyModeration({
+        uid: report.reportedUserId,
+        event: "unbanned",
       });
       setProfile((p) => (p ? { ...p, isBanned: false } : p));
     } catch (e) {

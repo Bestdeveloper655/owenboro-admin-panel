@@ -10,6 +10,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseServices";
+import { notifyModeration } from "@/lib/moderationNotify";
 
 type User = {
   id: string;
@@ -157,6 +158,22 @@ export default function Page() {
         option.ms === "remove" ? "" : `Restricted by admin (${option.label})`,
       timeout_set_at: serverTimestamp(),
     });
+
+    // Notify the user about the messaging restriction change.
+    const targetUid = user.uid || user.id;
+    if (option.ms === "remove") {
+      await notifyModeration({
+        uid: targetUid,
+        event: "messaging_restriction_removed",
+      });
+    } else {
+      await notifyModeration({
+        uid: targetUid,
+        event: "messaging_restricted",
+        label: option.label,
+        permanent: option.ms === "permanent",
+      });
+    }
 
     // Reflect immediately in local state.
     const patch = (u: User): User =>

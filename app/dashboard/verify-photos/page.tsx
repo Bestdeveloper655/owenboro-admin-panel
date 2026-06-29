@@ -162,6 +162,25 @@ export default function Page() {
     await batch.commit();
   };
 
+  // Notify the user that their verification was decided. Best-effort: the
+  // decision is already committed to Firestore, so a failed push must not undo
+  // it. The server route writes the in-app notification and sends the FCM push.
+  const notifyVerification = async (
+    uid: string,
+    status: "approved" | "rejected",
+    why: string,
+  ) => {
+    try {
+      await fetch("/api/admin/verification/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid, status, reason: why }),
+      });
+    } catch (err) {
+      console.error("Verification notification failed:", err);
+    }
+  };
+
   const approve = async (s: Submission) => {
     if (!s.uid) return;
     setBusy(true);
@@ -171,6 +190,7 @@ export default function Page() {
     try {
       const reviewer = auth.currentUser?.uid ?? "";
       await resolvePending(s.uid, "approved", "", reviewer);
+      await notifyVerification(s.uid, "approved", "");
     } catch (e) {
       console.error(e);
       alert("Approve failed. Check console.");
@@ -191,6 +211,7 @@ export default function Page() {
     try {
       const reviewer = auth.currentUser?.uid ?? "";
       await resolvePending(s.uid, "rejected", why, reviewer);
+      await notifyVerification(s.uid, "rejected", why);
     } catch (e) {
       console.error(e);
       alert("Reject failed. Check console.");
