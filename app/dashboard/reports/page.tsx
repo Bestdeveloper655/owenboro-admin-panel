@@ -13,7 +13,8 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { auth, db } from "@/lib/firebaseServices";
+import { httpsCallable } from "firebase/functions";
+import { auth, db, functions } from "@/lib/firebaseServices";
 import { notifyModeration } from "@/lib/moderationNotify";
 
 type ReportStatus = "pending" | "reviewed" | "dismissed" | "action_taken";
@@ -69,6 +70,20 @@ function formatTs(ts: any): string {
 function tsMillis(ts: any): number {
   if (ts && typeof ts.toDate === "function") return ts.toDate().getTime();
   return 0;
+}
+
+/**
+ * Whether a report points at a concrete chat message we can delete.
+ * Needs a messageId plus the parent reference for its source:
+ *  - direct_message → conversationId (DirectMessages/{id}/messages/{id})
+ *  - group_chat     → groupId        (Groups/{id}/messages/{id})
+ * Older group reports were filed without a messageId, so they return false.
+ */
+function canDeleteMessage(r: Report): boolean {
+  if (!r.messageId) return false;
+  if (r.source === "direct_message") return !!r.conversationId;
+  if (r.source === "group_chat") return !!r.groupId;
+  return false;
 }
 
 // Map a Firestore report document into our Report shape.
@@ -374,6 +389,45 @@ export default function Page() {
     } catch (e) {
       console.error(e);
       alert("Unban failed. Check console.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* DELETE MESSAGE — hard-delete the reported message via a secure Cloud
+     Function that re-checks the caller's admin/moderator role server-side. */
+  const deleteMessage = async (report: Report) => {
+    if (!canDeleteMessage(report)) {
+      alert(
+        "This report doesn't reference a deletable message (no message id was recorded).",
+      );
+      return;
+    }
+    if (
+      !confirm(
+        "Permanently delete this message from the chat? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const call = httpsCallable(functions, "deleteMessage");
+      await call({
+        reportId: report.id,
+        source: report.source,
+        conversationId: report.conversationId ?? "",
+        groupId: report.groupId ?? "",
+        messageId: report.messageId ?? "",
+        offenderUid: report.reportedUserId,
+        offenderName: report.reportedUserName,
+        messageText: report.messageText ?? "",
+      });
+      setSelected(null);
+      setNote("");
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Delete failed. Check console.");
     } finally {
       setBusy(false);
     }
@@ -788,6 +842,20 @@ export default function Page() {
                 {selected.messageSentAt && (
                   <p className="mt-2 text-xs text-black/60">
                     Sent: {formatTs(selected.messageSentAt)}
+                  </p>
+                )}
+                {canDeleteMessage(selected) ? (
+                  <button
+                    disabled={busy}
+                    onClick={() => deleteMessage(selected)}
+                    className="mt-3 rounded-lg bg-[#c0392b] px-4 py-2 text-sm font-semibold text-white hover:bg-[#a93226] disabled:opacity-50"
+                  >
+                    {busy ? "Working..." : "Delete Message"}
+                  </button>
+                ) : (
+                  <p className="mt-3 text-xs text-black/50">
+                    This message can’t be deleted from here — the report didn’t
+                    record its message id.
                   </p>
                 )}
               </section>

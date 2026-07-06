@@ -22,6 +22,8 @@ type User = {
   isVerified: boolean;
   timeoutUntil: Date | null;
   timeoutReason: string;
+  photoUrl: string;
+  photoUrls: string[];
 };
 
 /* Far-future sentinel used to represent a permanent restriction. */
@@ -33,10 +35,13 @@ type RestrictionOption = {
   ms: number | "permanent" | "remove";
 };
 
+const DAY = 24 * 60 * 60 * 1000;
 const RESTRICTION_OPTIONS: RestrictionOption[] = [
-  { label: "24 hours", ms: 24 * 60 * 60 * 1000 },
-  { label: "3 days", ms: 3 * 24 * 60 * 60 * 1000 },
-  { label: "7 days", ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: "1 day", ms: 1 * DAY },
+  { label: "3 days", ms: 3 * DAY },
+  { label: "1 week", ms: 7 * DAY },
+  { label: "2 weeks", ms: 14 * DAY },
+  { label: "1 month", ms: 30 * DAY },
   { label: "Permanent", ms: "permanent" },
 ];
 
@@ -58,6 +63,7 @@ export default function Page() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<User | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
   const [page, setPage] = useState(1);
@@ -71,6 +77,9 @@ export default function Page() {
       const data: User[] = snap.docs.map((d) => {
         const x = d.data();
         const rawTimeout = x.timeout_until;
+        const photoUrls: string[] = Array.isArray(x.photo_urls)
+          ? x.photo_urls.filter((u: any) => typeof u === "string" && u)
+          : [];
         return {
           id: d.id,
           name: x.full_name || x.display_name || "No Name",
@@ -82,6 +91,8 @@ export default function Page() {
           timeoutUntil:
             rawTimeout && rawTimeout.toDate ? rawTimeout.toDate() : null,
           timeoutReason: x.timeout_reason || "",
+          photoUrl: x.photo_url || photoUrls[0] || "",
+          photoUrls,
         };
       });
 
@@ -400,6 +411,9 @@ export default function Page() {
       {/* USER DETAILS MODAL */}
       {selected && (
         <Modal title="User Details" onClose={() => setSelected(null)}>
+          {/* PROFILE PHOTO + GALLERY */}
+          <UserPhotos user={selected} onZoom={(url) => setLightbox(url)} />
+
           <div className="space-y-3 text-black">
             <p className="flex items-center gap-2">
               <b>Name:</b> {selected.name}
@@ -432,6 +446,101 @@ export default function Page() {
           />
         </Modal>
       )}
+
+      {/* PHOTO LIGHTBOX — enlarged view of a single profile photo */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute right-4 top-4 text-3xl leading-none text-white/80 hover:text-white"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightbox}
+            alt="Profile photo"
+            className="max-h-[90vh] max-w-full rounded-2xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* USER PHOTOS — profile avatar + grid gallery of all uploaded photos */
+function UserPhotos({
+  user,
+  onZoom,
+}: {
+  user: User;
+  onZoom: (url: string) => void;
+}) {
+  // Show the main photo first, then the rest, de-duplicated.
+  const photos = Array.from(
+    new Set([user.photoUrl, ...user.photoUrls].filter(Boolean)),
+  );
+
+  if (photos.length === 0) {
+    return (
+      <div className="mb-5 flex items-center gap-4">
+        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-black/10 text-xs text-black/50">
+          No photo
+        </div>
+        <p className="text-sm text-black/60">
+          This user has not uploaded any profile photos.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-5">
+      {/* Main profile photo */}
+      <div className="mb-4 flex items-center gap-4">
+        <button
+          onClick={() => onZoom(photos[0])}
+          className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-black/10 ring-2 ring-[#ff7a59]/50"
+          aria-label="View profile photo"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={photos[0]}
+            alt={user.name}
+            className="h-full w-full object-cover"
+          />
+        </button>
+        <div>
+          <p className="text-sm font-semibold text-black">Profile photos</p>
+          <p className="text-xs text-black/60">
+            {photos.length} photo{photos.length > 1 ? "s" : ""} · tap to enlarge
+          </p>
+        </div>
+      </div>
+
+      {/* Grid gallery of all photos */}
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+        {photos.map((url, i) => (
+          <button
+            key={i}
+            onClick={() => onZoom(url)}
+            className="aspect-square overflow-hidden rounded-xl bg-black/10 ring-1 ring-black/10 transition hover:ring-2 hover:ring-[#ff7a59]"
+            aria-label={`View photo ${i + 1}`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={`Photo ${i + 1}`}
+              className="h-full w-full object-cover"
+            />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -476,8 +585,8 @@ function RestrictionPanel({
         {restrictionLabel(user.timeoutUntil)}
       </p>
       <p className="mb-4 text-xs text-black/50">
-        A restricted user can still view chats but cannot send new messages in
-        direct or group chats until the restriction ends.
+        A restricted user can still view content but cannot send new messages in
+        direct or group chats, or post stories, until the restriction ends.
       </p>
 
       <div className="flex flex-wrap gap-2">
