@@ -24,12 +24,12 @@ import { serverTimestamp } from "firebase/firestore";
 import { db, storage } from "@/lib/firebaseServices";
 
 /**
- * This user is automatically added as a member to every group the admin
- * creates. A backfill script (scripts/addDefaultUserToGroups.js) adds them
- * to any groups that already existed.
+ * This user is automatically added as an admin member to every group the
+ * admin creates. A backfill script (scripts/addDefaultUserToGroups.js) adds
+ * them to any groups that already existed.
  */
-const DEFAULT_MEMBER_UID = "alw3WyINMrYe3njG6H0c7IzSCo52";
-const DEFAULT_MEMBER_EMAIL = "jag42303@gmail.com";
+const DEFAULT_MEMBER_UID = "KBXvaPEvJ0UL6rm8A7hwzAHqzV92";
+const DEFAULT_MEMBER_EMAIL = "info@theowensboroapp.com";
 
 const MAX_FEATURED = 3;
 
@@ -57,6 +57,7 @@ async function addDefaultMember(groupId: string) {
         email,
         joinedAt: serverTimestamp(),
         status: "active",
+        role: "admin",
       },
       { merge: true }
     );

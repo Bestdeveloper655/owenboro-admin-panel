@@ -49,6 +49,7 @@ type NotificationItem = {
   deliveryMode?: DeliveryMode;
   targetTopic?: string;
  targetUserIds?: string[];
+  type?: string;
 };
 
 type FormState = {
@@ -116,7 +117,18 @@ export default function Page() {
         orderBy("createdAt", "desc"),
       );
       const snap = await getDocs(q);
-      const data: NotificationItem[] = snap.docs.map((d) => {
+      const data: NotificationItem[] = snap.docs
+        // The `notifications` collection is shared with the mobile app, which
+        // also writes per-user chat/social records (group_message,
+        // direct_message, group_reply, friend_request, post_like, post_comment,
+        // …). The admin notification center is only for general/admin
+        // broadcasts, so keep just the admin-generated docs: type "admin" or a
+        // legacy broadcast identifiable by its admin-panel `deliveryMode` field.
+        .filter((d) => {
+          const x = d.data();
+          return x.type === "admin" || x.deliveryMode != null;
+        })
+        .map((d) => {
         const x = d.data();
         return {
           id: d.id,
@@ -132,7 +144,8 @@ export default function Page() {
           errorMessage: x.errorMessage || "",
           deliveryMode: (x.deliveryMode || "topic") as DeliveryMode,
           targetTopic: x.targetTopic || "",
-         targetUserIds: x.targetUserIds || []
+         targetUserIds: x.targetUserIds || [],
+          type: x.type || "",
         };
       });
       setNotifications(data);

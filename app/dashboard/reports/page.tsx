@@ -10,6 +10,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -49,8 +50,26 @@ type ReportedProfile = {
   bio: string;
   email: string;
   isBanned: boolean;
+  timeoutUntil: Date | null;
   reportCount: number;
 };
+
+/* Temporary-block durations. Reuses the same messaging-restriction mechanism
+ * (timeout_until) the Users page uses, which the mobile app already enforces —
+ * a temp-blocked user can still view content but cannot send messages or post
+ * until the block expires. Permanent removal is handled by "Ban User". */
+const DAY_MS = 24 * 60 * 60 * 1000;
+const TEMP_BLOCK_OPTIONS: { label: string; ms: number }[] = [
+  { label: "1 day", ms: 1 * DAY_MS },
+  { label: "3 days", ms: 3 * DAY_MS },
+  { label: "1 week", ms: 7 * DAY_MS },
+  { label: "2 weeks", ms: 14 * DAY_MS },
+  { label: "1 month", ms: 30 * DAY_MS },
+];
+
+function isTempBlocked(until: Date | null): boolean {
+  return until != null && until.getTime() > Date.now();
+}
 
 type Tab = "pending" | "reviewed" | "dismissed" | "action_taken";
 
@@ -141,6 +160,7 @@ export default function Page() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showTempBlock, setShowTempBlock] = useState(false);
 
   // User lookup: load every report once so we can count reports per user.
   const [allReports, setAllReports] = useState<Report[]>([]);
@@ -238,6 +258,8 @@ export default function Page() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      // Reset the temp-block picker whenever a different report is opened.
+      setShowTempBlock(false);
       if (!selected?.reportedUserId) {
         setProfile(null);
         return;
@@ -265,6 +287,7 @@ export default function Page() {
             bio: "",
             email: "",
             isBanned: false,
+            timeoutUntil: null,
             reportCount,
           });
           return;
@@ -283,6 +306,10 @@ export default function Page() {
           bio: x.bio || "",
           email: x.email || "",
           isBanned: x.is_banned === true,
+          timeoutUntil:
+            x.timeout_until && x.timeout_until.toDate
+              ? x.timeout_until.toDate()
+              : null,
           reportCount,
         });
       } catch (e) {
@@ -389,6 +416,76 @@ export default function Page() {
     } catch (e) {
       console.error(e);
       alert("Unban failed. Check console.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* TEMP BLOCK — restrict the reported user from messaging/posting for a fixed
+     duration using the same timeout_until mechanism the Users page uses. The
+     block auto-expires; it does not fully ban the account. */
+  const tempBlockUser = async (
+    report: Report,
+    option: { label: string; ms: number },
+  ) => {
+    if (!report.reportedUserId) return;
+    setBusy(true);
+    try {
+      const reviewer = auth.currentUser?.uid ?? "";
+      const until = new Date(Date.now() + option.ms);
+      const reason = note.trim()
+        ? `Temporarily blocked by admin (${option.label}) — ${note.trim()}`
+        : `Temporarily blocked by admin (${option.label})`;
+      await Promise.all([
+        updateDoc(doc(db, "Users", report.reportedUserId), {
+          timeout_until: Timestamp.fromDate(until),
+          timeout_reason: reason,
+          timeout_set_at: serverTimestamp(),
+        }),
+        updateDoc(doc(db, "reports", report.id), {
+          status: "action_taken",
+          reviewed_at: serverTimestamp(),
+          reviewed_by: reviewer,
+          moderator_notes: note.trim() || `Temp block (${option.label}).`,
+        }),
+      ]);
+      await notifyModeration({
+        uid: report.reportedUserId,
+        event: "messaging_restricted",
+        label: option.label,
+        reason: note.trim(),
+      });
+      setSelected(null);
+      setNote("");
+      setShowTempBlock(false);
+    } catch (e) {
+      console.error(e);
+      alert("Temp block failed. Check console.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* REMOVE TEMP BLOCK — lift an active temporary block early. */
+  const removeTempBlock = async (report: Report) => {
+    if (!report.reportedUserId) return;
+    if (!confirm(`Remove the temporary block on ${report.reportedUserName || "this user"}?`))
+      return;
+    setBusy(true);
+    try {
+      await updateDoc(doc(db, "Users", report.reportedUserId), {
+        timeout_until: null,
+        timeout_reason: "",
+        timeout_set_at: serverTimestamp(),
+      });
+      await notifyModeration({
+        uid: report.reportedUserId,
+        event: "messaging_restriction_removed",
+      });
+      setProfile((p) => (p ? { ...p, timeoutUntil: null } : p));
+    } catch (e) {
+      console.error(e);
+      alert("Failed to remove block. Check console.");
     } finally {
       setBusy(false);
     }
@@ -677,6 +774,7 @@ export default function Page() {
           onClose={() => {
             setSelected(null);
             setNote("");
+            setShowTempBlock(false);
           }}
         >
           <div className="space-y-5 text-sm text-black">
@@ -734,6 +832,12 @@ export default function Page() {
                         {profile.isBanned && (
                           <span className="inline-block rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white">
                             Banned
+                          </span>
+                        )}
+                        {isTempBlocked(profile.timeoutUntil) && (
+                          <span className="inline-block rounded-full bg-amber-500 px-3 py-1 text-xs font-semibold text-white">
+                            Temp blocked until{" "}
+                            {profile.timeoutUntil!.toLocaleString()}
                           </span>
                         )}
                       </div>
@@ -874,6 +978,38 @@ export default function Page() {
               />
             </section>
 
+            {/* TEMP BLOCK DURATION PICKER */}
+            {showTempBlock && !profile?.isBanned && (
+              <section className="rounded-2xl border border-amber-500/50 bg-amber-50 p-4">
+                <h3 className="mb-1 font-semibold text-amber-800">
+                  Temporarily block user
+                </h3>
+                <p className="mb-3 text-xs text-amber-800/80">
+                  They can still view content but can’t send messages or post
+                  until the block expires. Pick a duration:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {TEMP_BLOCK_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.label}
+                      disabled={busy}
+                      onClick={() => tempBlockUser(selected, opt)}
+                      className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                  <button
+                    disabled={busy}
+                    onClick={() => setShowTempBlock(false)}
+                    className="rounded-lg border border-amber-600/40 px-4 py-2 text-sm font-semibold text-amber-800 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </section>
+            )}
+
             <div className="flex flex-wrap justify-end gap-2 pt-2">
               <button
                 disabled={busy}
@@ -889,6 +1025,25 @@ export default function Page() {
               >
                 Mark Reviewed
               </button>
+              {isTempBlocked(profile?.timeoutUntil ?? null) ? (
+                <button
+                  disabled={busy}
+                  onClick={() => removeTempBlock(selected)}
+                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                >
+                  Remove Block
+                </button>
+              ) : (
+                !profile?.isBanned && (
+                  <button
+                    disabled={busy}
+                    onClick={() => setShowTempBlock((v) => !v)}
+                    className="rounded-lg border border-amber-600 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-600 hover:text-white disabled:opacity-50"
+                  >
+                    Temp Block
+                  </button>
+                )
+              )}
               {profile?.isBanned ? (
                 <button
                   disabled={busy}

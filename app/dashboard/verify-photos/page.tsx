@@ -16,6 +16,20 @@ import {
 import { deleteObject, ref } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebaseServices";
 
+type UserProfile = {
+  fullName: string;
+  displayName: string;
+  username: string;
+  gender: string;
+  age: number | null;
+  bio: string;
+  email: string;
+  phoneNumber: string;
+  dateOfBirth: any;
+  isVerified: boolean;
+  photoUrls: string[];
+};
+
 type Submission = {
   id: string;
   uid: string;
@@ -27,6 +41,7 @@ type Submission = {
   reviewedAt?: any;
   reviewedBy?: string;
   rejectionReason?: string;
+  profile?: UserProfile | null;
 };
 
 type Tab = "pending" | "approved" | "rejected";
@@ -78,20 +93,43 @@ export default function Page() {
           deduped.push(s);
         }
 
-        // Backfill the profile picture from the Users doc for older
-        // submissions that didn't snapshot it, so admins can always compare
-        // the ID photo against the user's current profile photo.
+        // Fetch each submitting user's full profile so admins can review the
+        // complete profile (name, gender, age, bio, …) alongside the photos,
+        // and backfill the profile picture for older submissions that didn't
+        // snapshot it, so admins can always compare the ID photo against the
+        // user's current profile photo.
         await Promise.all(
           deduped.map(async (s) => {
-            if (s.profilePhotoUrl || !s.uid) return;
+            if (!s.uid) return;
             try {
               const userSnap = await getDoc(doc(db, "Users", s.uid));
+              if (!userSnap.exists()) return;
               const u = userSnap.data() as any;
-              const photo =
-                u?.photo_url ||
-                (Array.isArray(u?.photo_urls) ? u.photo_urls[0] : "") ||
-                "";
-              s.profilePhotoUrl = photo;
+              const photos = Array.isArray(u.photo_urls)
+                ? (u.photo_urls as any[]).filter(
+                    (p): p is string => typeof p === "string" && !!p,
+                  )
+                : [];
+              const primaryPhoto = u.photo_url || photos[0] || "";
+              if (!s.profilePhotoUrl) s.profilePhotoUrl = primaryPhoto;
+              if (!s.userDisplayName) {
+                s.userDisplayName = u.display_name || u.full_name || "";
+              }
+              s.profile = {
+                fullName: u.full_name || "",
+                displayName: u.display_name || "",
+                username: u.username || "",
+                gender: u.gender || "",
+                age: typeof u.age === "number" ? u.age : null,
+                bio: u.bio || "",
+                email: u.email || "",
+                phoneNumber: u.phone_number || "",
+                dateOfBirth: u.date_of_birth ?? null,
+                isVerified: !!u.is_verified,
+                photoUrls: primaryPhoto
+                  ? [primaryPhoto, ...photos.filter((p) => p !== primaryPhoto)]
+                  : photos,
+              };
             } catch (e) {
               console.error(e);
             }
@@ -318,6 +356,18 @@ export default function Page() {
                   <p className="truncate font-semibold">
                     {s.userDisplayName || "Unknown user"}
                   </p>
+                  {(s.profile?.gender || s.profile?.age != null) && (
+                    <p className="truncate text-xs font-medium text-black/70">
+                      {[s.profile?.gender, s.profile?.age != null ? `${s.profile.age} yrs` : null]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                  {s.profile?.username && (
+                    <p className="truncate text-xs text-black/60">
+                      @{s.profile.username}
+                    </p>
+                  )}
                   <p className="truncate text-xs text-black/60">{s.uid}</p>
                   <p className="mt-1 text-xs text-black/60">
                     {s.submittedAt?.toDate
@@ -444,6 +494,73 @@ export default function Page() {
               )}
             </div>
           </div>
+          {/* COMPLETE PROFILE */}
+          <div className="mt-5 rounded-2xl border border-black/10 bg-white/60 p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-black/60">
+              User profile
+            </p>
+            <div className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm text-black sm:grid-cols-2">
+              <ProfileField
+                label="Name"
+                value={
+                  selected.profile?.fullName ||
+                  selected.profile?.displayName ||
+                  selected.userDisplayName
+                }
+              />
+              <ProfileField label="Username" value={selected.profile?.username && `@${selected.profile.username}`} />
+              <ProfileField label="Gender" value={selected.profile?.gender} />
+              <ProfileField
+                label="Age"
+                value={selected.profile?.age != null ? `${selected.profile.age}` : ""}
+              />
+              <ProfileField
+                label="Date of birth"
+                value={
+                  selected.profile?.dateOfBirth?.toDate
+                    ? selected.profile.dateOfBirth.toDate().toLocaleDateString()
+                    : ""
+                }
+              />
+              <ProfileField
+                label="Verified"
+                value={selected.profile ? (selected.profile.isVerified ? "Yes" : "No") : ""}
+              />
+              <ProfileField label="Email" value={selected.profile?.email} />
+              <ProfileField label="Phone" value={selected.profile?.phoneNumber} />
+            </div>
+            {selected.profile?.bio && (
+              <div className="mt-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-black/50">
+                  Bio
+                </p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-black/80">
+                  {selected.profile.bio}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* PROFILE PHOTO GALLERY */}
+          {selected.profile?.photoUrls && selected.profile.photoUrls.length > 0 && (
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-black/60">
+                Profile photos ({selected.profile.photoUrls.length})
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {selected.profile.photoUrls.map((url, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={`${url}-${i}`}
+                    src={url}
+                    alt={`Profile photo ${i + 1}`}
+                    className="h-24 w-24 rounded-xl bg-black/10 object-cover"
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="mt-4 space-y-1 text-sm text-black">
             <p>
               <b>UID:</b> {selected.uid}
@@ -481,6 +598,19 @@ export default function Page() {
           )}
         </Modal>
       )}
+    </div>
+  );
+}
+
+function ProfileField({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-xs font-semibold uppercase tracking-wide text-black/50">
+        {label}
+      </span>
+      <span className="break-words text-sm text-black/90">
+        {value ? value : "—"}
+      </span>
     </div>
   );
 }

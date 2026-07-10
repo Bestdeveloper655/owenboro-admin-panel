@@ -10,9 +10,12 @@
 require("dotenv").config({ path: ".env.local" });
 const admin = require("firebase-admin");
 
-// The user to add to every group.
-const DEFAULT_MEMBER_UID = "alw3WyINMrYe3njG6H0c7IzSCo52";
-const DEFAULT_MEMBER_EMAIL = "jag42303@gmail.com";
+// The user to add (as admin) to every group.
+const DEFAULT_MEMBER_UID = "KBXvaPEvJ0UL6rm8A7hwzAHqzV92";
+const DEFAULT_MEMBER_EMAIL = "info@theowensboroapp.com";
+
+// The previous default member ("Javier") to remove from every group.
+const REMOVE_MEMBER_UID = "alw3WyINMrYe3njG6H0c7IzSCo52";
 
 function getPrivateKey() {
   const key = process.env.FIREBASE_PRIVATE_KEY;
@@ -54,18 +57,22 @@ const db = admin.firestore();
     console.log(`Found ${groupsSnap.size} group(s).`);
 
     let added = 0;
-    let skipped = 0;
+    let updated = 0;
+    let removed = 0;
 
     for (const groupDoc of groupsSnap.docs) {
+      const groupName = groupDoc.data().name || groupDoc.id;
+
+      // 1) Ensure the default user is an active admin member.
       const memberRef = groupDoc.ref
         .collection("members")
         .doc(DEFAULT_MEMBER_UID);
 
       const existing = await memberRef.get();
-      if (existing.exists && existing.data().status === "active") {
-        skipped++;
-        continue;
-      }
+      const wasActiveAdmin =
+        existing.exists &&
+        existing.data().status === "active" &&
+        existing.data().role === "admin";
 
       await memberRef.set(
         {
@@ -74,14 +81,35 @@ const db = admin.firestore();
           email,
           joinedAt: admin.firestore.FieldValue.serverTimestamp(),
           status: "active",
+          role: "admin",
         },
         { merge: true }
       );
-      added++;
-      console.log(`  + added to "${groupDoc.data().name || groupDoc.id}"`);
+      if (existing.exists) {
+        if (!wasActiveAdmin) {
+          updated++;
+          console.log(`  ~ updated admin membership in "${groupName}"`);
+        }
+      } else {
+        added++;
+        console.log(`  + added to "${groupName}"`);
+      }
+
+      // 2) Remove the previous default member ("Javier"), if present.
+      const removeRef = groupDoc.ref
+        .collection("members")
+        .doc(REMOVE_MEMBER_UID);
+      const removeSnap = await removeRef.get();
+      if (removeSnap.exists) {
+        await removeRef.delete();
+        removed++;
+        console.log(`  - removed previous default member from "${groupName}"`);
+      }
     }
 
-    console.log(`\nDone. Added: ${added}, already a member: ${skipped}.`);
+    console.log(
+      `\nDone. Added: ${added}, updated: ${updated}, removed previous member: ${removed}.`
+    );
     process.exit(0);
   } catch (err) {
     console.error("Failed:", err);
