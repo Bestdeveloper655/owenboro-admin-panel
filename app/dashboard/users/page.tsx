@@ -27,6 +27,7 @@ type User = {
   isVip: boolean;
   subStore: string;
   subProductId: string;
+  promoOptIn: boolean | null;
 };
 
 /* An admin-granted "VIP" is a complimentary lifetime subscription: the mobile
@@ -105,6 +106,12 @@ export default function Page() {
           isVip: sub?.isActive === true,
           subStore: sub?.store || "",
           subProductId: sub?.productId || "",
+          promoOptIn:
+            x.promo_opt_in === true
+              ? true
+              : x.promo_opt_in === false
+                ? false
+                : null,
         };
       });
 
@@ -464,6 +471,20 @@ export default function Page() {
             </p>
             <p>
               <b>Verified:</b> {selected.isVerified ? "Yes" : "No"}
+            </p>
+            <p className="flex items-center gap-2">
+              <b>Newsletter:</b>{" "}
+              {selected.promoOptIn === true ? (
+                <span className="rounded-full bg-green-600 px-2 py-0.5 text-xs font-semibold text-white">
+                  Opted in
+                </span>
+              ) : selected.promoOptIn === false ? (
+                <span className="rounded-full bg-black/30 px-2 py-0.5 text-xs font-semibold text-white">
+                  Opted out
+                </span>
+              ) : (
+                <span className="text-black/50">Not answered</span>
+              )}
             </p>
             <p>
               <b>Email:</b> {selected.email}

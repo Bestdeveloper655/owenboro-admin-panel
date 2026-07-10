@@ -22,6 +22,7 @@ const menuItems: MenuItem[] = [
   { name: "Vote for Favourite", path: "/dashboard/vote" },
   { name: "Contact Support", path: "/dashboard/contact" },
   { name: "User Info", path: "/dashboard/users" },
+  { name: "Newsletter", path: "/dashboard/newsletter" },
   { name: "Verify Photos", path: "/dashboard/verify-photos" },
   { name: "Notifications", path: "/dashboard/notifications" },
   { name: "App Config", path: "/dashboard/app-config" },
