@@ -24,7 +24,15 @@ type User = {
   timeoutReason: string;
   photoUrl: string;
   photoUrls: string[];
+  isVip: boolean;
+  subStore: string;
+  subProductId: string;
 };
+
+/* An admin-granted "VIP" is a complimentary lifetime subscription: the mobile
+ * app reads the `subscription` map (via RevenueCat) to unlock premium features.
+ * That entitlement field is locked down by security rules, so the grant/revoke
+ * write happens server-side (see /api/admin/users/vip). */
 
 /* Far-future sentinel used to represent a permanent restriction. */
 const PERMANENT_YEAR = 9000;
@@ -80,6 +88,7 @@ export default function Page() {
         const photoUrls: string[] = Array.isArray(x.photo_urls)
           ? x.photo_urls.filter((u: any) => typeof u === "string" && u)
           : [];
+        const sub = x.subscription || null;
         return {
           id: d.id,
           name: x.full_name || x.display_name || "No Name",
@@ -93,6 +102,9 @@ export default function Page() {
           timeoutReason: x.timeout_reason || "",
           photoUrl: x.photo_url || photoUrls[0] || "",
           photoUrls,
+          isVip: sub?.isActive === true,
+          subStore: sub?.store || "",
+          subProductId: sub?.productId || "",
         };
       });
 
@@ -220,6 +232,32 @@ export default function Page() {
     }
   };
 
+  /* GRANT / REVOKE VIP — write the complimentary subscription map the app reads
+     to unlock (or lock) all premium features. */
+  const setVip = async (user: User, makeVip: boolean) => {
+    const targetUid = user.uid || user.id;
+    const res = await fetch("/api/admin/users/vip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uid: targetUid, makeVip }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message || "Failed to update VIP.");
+    }
+    const patch = (u: User): User =>
+      u.id === user.id
+        ? {
+            ...u,
+            isVip: makeVip,
+            subStore: "complimentary",
+            subProductId: "complimentary_lifetime",
+          }
+        : u;
+    setUsers((prev) => prev.map(patch));
+    setSelected((prev) => (prev ? patch(prev) : prev));
+  };
+
   /* PAGINATION (over filtered list) */
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
 
@@ -316,6 +354,11 @@ export default function Page() {
                           <span className="inline-flex flex-wrap items-center gap-1.5">
                             {u.name}
                             {u.isVerified && <VerifiedBadge />}
+                            {u.isVip && (
+                              <span className="rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 px-2 py-0.5 text-[10px] font-bold uppercase text-black">
+                                VIP
+                              </span>
+                            )}
                             {restricted && (
                               <span className="rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
                                 {isPermanent(u.timeoutUntil)
@@ -438,6 +481,9 @@ export default function Page() {
                 : "-"}
             </p>
           </div>
+
+          {/* VIP / PREMIUM CONTROLS */}
+          <VipPanel user={selected} onSetVip={(v) => setVip(selected, v)} />
 
           {/* RESTRICTION CONTROLS */}
           <RestrictionPanel
@@ -607,6 +653,79 @@ function RestrictionPanel({
             className="rounded-lg border border-green-700 px-4 py-2 text-sm font-semibold text-green-800 transition hover:bg-green-700 hover:text-white disabled:opacity-50"
           >
             {busy === "Remove" ? "Saving…" : "Remove restriction"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* VIP PANEL — grant or revoke all premium features for a user */
+function VipPanel({
+  user,
+  onSetVip,
+}: {
+  user: User;
+  onSetVip: (makeVip: boolean) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  // A real paid subscription (App Store / Play Store) is managed by RevenueCat,
+  // not the admin. We only grant/revoke admin "complimentary" VIP here.
+  const isPaidSubscriber = user.isVip && user.subStore !== "complimentary";
+
+  const run = async (makeVip: boolean) => {
+    if (!makeVip && !confirm(`Remove VIP / premium access from ${user.name}?`))
+      return;
+    setBusy(true);
+    try {
+      await onSetVip(makeVip);
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.message || "Failed to update VIP status. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 rounded-2xl border border-amber-500/40 bg-amber-50/60 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-base font-bold text-black">VIP / Premium</span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+            user.isVip ? "bg-amber-500 text-black" : "bg-black/20 text-black/70"
+          }`}
+        >
+          {user.isVip ? "VIP" : "Standard"}
+        </span>
+      </div>
+
+      <p className="mb-4 text-xs text-black/60">
+        {user.isVip
+          ? isPaidSubscriber
+            ? `This user has an active paid subscription (${user.subStore}). It's managed by the store and can't be changed here.`
+            : "This user has admin-granted VIP — all premium features are unlocked."
+          : "Grant VIP to unlock all premium features for this user, free of charge."}
+      </p>
+
+      <div className="flex flex-wrap gap-2">
+        {isPaidSubscriber ? (
+          <span className="text-sm text-black/50">No admin action available.</span>
+        ) : user.isVip ? (
+          <button
+            disabled={busy}
+            onClick={() => run(false)}
+            className="rounded-lg border border-red-600 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-600 hover:text-white disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Revoke VIP"}
+          </button>
+        ) : (
+          <button
+            disabled={busy}
+            onClick={() => run(true)}
+            className="rounded-lg bg-gradient-to-r from-amber-500 to-yellow-400 px-4 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Make VIP (grant premium)"}
           </button>
         )}
       </div>
