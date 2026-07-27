@@ -79,6 +79,9 @@ type Group = {
   memberCount?: number;
   messagingPaused: boolean;
   featuredListings: FeaturedListing[];
+  /** Restrict visibility/membership to one gender ("Female" | "Male").
+   *  Empty = open to everyone. Enforced in the app and firestore.rules. */
+  allowedGender?: string;
 };
 
 type Member = {
@@ -108,7 +111,11 @@ export default function Page() {
   const [file, setFile] = useState<File | null>(null);
   const [oldImage, setOldImage] = useState<string>("");
 
-  const [form, setForm] = useState({ name: "", description: "" });
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    allowedGender: "",
+  });
   const [error, setError] = useState("");
 
   // 3-dot action menu (anchored, fixed-position to avoid table clipping).
@@ -162,6 +169,7 @@ export default function Page() {
               featuredListings: Array.isArray(x.featured_listings)
                 ? (x.featured_listings as FeaturedListing[])
                 : [],
+              allowedGender: x.allowedGender || "",
             } as Group;
           })
         );
@@ -282,6 +290,7 @@ export default function Page() {
         imagePath,
         status: "active",
         createdAt: serverTimestamp(),
+        allowedGender: form.allowedGender,
       };
 
       const docRef = await addDoc(collection(db, "Groups"), newGroup);
@@ -332,6 +341,7 @@ export default function Page() {
         description: form.description.trim(),
         image: imageUrl,
         imagePath,
+        allowedGender: form.allowedGender,
       };
 
       await updateDoc(doc(db, "Groups", editing.id), updatedData);
@@ -434,13 +444,17 @@ export default function Page() {
     setEditing(null);
     setFile(null);
     setOldImage("");
-    setForm({ name: "", description: "" });
+    setForm({ name: "", description: "", allowedGender: "" });
     setError("");
   };
 
   const openEdit = (group: Group) => {
     setEditing(group);
-    setForm({ name: group.name, description: group.description });
+    setForm({
+      name: group.name,
+      description: group.description,
+      allowedGender: group.allowedGender || "",
+    });
     setOldImage(group.image || "");
     setAdding(false);
   };
@@ -479,7 +493,7 @@ export default function Page() {
           onClick={() => {
             setAdding(true);
             setEditing(null);
-            setForm({ name: "", description: "" });
+            setForm({ name: "", description: "", allowedGender: "" });
             setFile(null);
             setError("");
           }}
@@ -582,6 +596,11 @@ export default function Page() {
                             <span className="rounded-full bg-[#ff7a59]/20 px-2 py-1 text-[10px] font-bold uppercase text-[#c2410c]">
                               {g.featuredListings.length} listing
                               {g.featuredListings.length === 1 ? "" : "s"}
+                            </span>
+                          )}
+                          {g.allowedGender && (
+                            <span className="rounded-full bg-purple-500/20 px-2 py-1 text-[10px] font-bold uppercase text-purple-700">
+                              {g.allowedGender} only
                             </span>
                           )}
                         </div>
@@ -755,6 +774,27 @@ export default function Page() {
               }
               placeholder="Enter group description (optional)"
             />
+
+            <div>
+              <label className="block text-sm font-semibold text-black mb-2">
+                Restrict to gender
+              </label>
+              <select
+                value={form.allowedGender}
+                onChange={(e) =>
+                  setForm({ ...form, allowedGender: e.target.value })
+                }
+                className="w-full rounded-lg border border-black/20 bg-white px-3 py-2 text-black"
+              >
+                <option value="">No restriction (everyone)</option>
+                <option value="Female">Female only</option>
+                <option value="Male">Male only</option>
+              </select>
+              <p className="mt-1 text-xs text-black/50">
+                Restricted groups are hidden from users of any other gender in
+                the mobile app.
+              </p>
+            </div>
 
             <div>
               <label className="block text-sm font-semibold text-black mb-2">
