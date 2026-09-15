@@ -101,6 +101,9 @@ export async function POST(req: NextRequest) {
       targetUserIds: [uid],
       source: "verification",
       verificationStatus: status,
+      // This route sends the push itself below; tells the
+      // sendPushOnNotificationCreate Cloud Function not to push it again.
+      pushHandled: true,
     });
 
     // 2) Look up the user's device token(s).

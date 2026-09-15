@@ -98,6 +98,9 @@ export async function notifyUser({
     targetUserIds: [uid],
     source,
     ...extra,
+    // We send the push ourselves below; tells the sendPushOnNotificationCreate
+    // Cloud Function not to push it again.
+    pushHandled: true,
   });
 
   // 2) Look up the user's device token(s).
