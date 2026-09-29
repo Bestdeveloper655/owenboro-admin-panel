@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireStaff } from "@/lib/apiAuth";
 import { getAdmin } from "@/lib/serverNotify";
 
 // Grant or revoke admin "VIP" (a complimentary lifetime subscription) for a
@@ -8,6 +9,9 @@ import { getAdmin } from "@/lib/serverNotify";
 // can't grant itself premium, so the browser cannot write this directly.
 
 export async function POST(req: NextRequest) {
+  const caller = await requireStaff(req);
+  if (caller instanceof NextResponse) return caller;
+
   try {
     const { uid, makeVip } = await req.json();
 

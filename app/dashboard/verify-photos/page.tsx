@@ -15,6 +15,7 @@ import {
 } from "firebase/firestore";
 import { deleteObject, ref } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebaseServices";
+import { authedFetch } from "@/lib/authedFetch";
 
 type UserProfile = {
   fullName: string;
@@ -209,7 +210,7 @@ export default function Page() {
     why: string,
   ) => {
     try {
-      await fetch("/api/admin/verification/notify", {
+      await authedFetch("/api/admin/verification/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ uid, status, reason: why }),

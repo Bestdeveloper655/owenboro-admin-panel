@@ -1,10 +1,10 @@
 "use client";
 
-import Sidebar from "@/components/Sidebar";
+import Sidebar, { isAdminOnlyPath } from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebaseServices";
@@ -17,6 +17,8 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -41,6 +43,7 @@ export default function DashboardLayout({
           setTimeout(() => router.replace("/login"), 1500);
           return;
         }
+        setRole(role);
         setLoading(false);
       } catch {
         setDenied(true);
@@ -112,6 +115,8 @@ export default function DashboardLayout({
     );
   }
 
+  const blocked = role !== "admin" && isAdminOnlyPath(pathname);
+
   // ✅ Main Layout
   return (
     <div className="flex min-h-screen bg-black text-white">
@@ -122,7 +127,16 @@ export default function DashboardLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <Navbar onMenuClick={() => setSidebarOpen(true)} />
         <main className="flex-1 px-4 pt-4 pb-4 sm:px-6 lg:px-8">
-          {children}
+          {blocked ? (
+            <div className="mx-auto mt-16 max-w-md rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-8 text-center">
+              <h1 className="text-2xl font-bold text-[#ff7a59]">Admins only</h1>
+              <p className="mt-3 text-[#e8dcc7]">
+                This section can only be managed by an admin.
+              </p>
+            </div>
+          ) : (
+            children
+          )}
         </main>
       </div>
     </div>

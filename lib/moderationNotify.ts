@@ -1,3 +1,5 @@
+import { authedFetch } from "@/lib/authedFetch";
+
 // Client-safe helper: tells the server route to notify a user about a
 // moderation action. Best-effort — the moderation write itself is already
 // committed before this is called, so a failed push must never block the UI.
@@ -18,7 +20,7 @@ export async function notifyModeration(payload: {
 }): Promise<void> {
   if (!payload.uid) return;
   try {
-    await fetch("/api/admin/moderation/notify", {
+    await authedFetch("/api/admin/moderation/notify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
