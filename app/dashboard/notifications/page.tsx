@@ -19,6 +19,7 @@ import {
   deleteObject,
 } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseServices";
+import { authedFetch } from "@/lib/authedFetch";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Types
@@ -343,7 +344,7 @@ const validateForm = () => {
   payload.targetUserIds = opts.targetUserIds;
 }
 
-      const response = await fetch("/api/admin/notifications/send", {
+      const response = await authedFetch("/api/admin/notifications/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireStaff } from "@/lib/apiAuth";
 import { notifyUser } from "@/lib/serverNotify";
 
 // Notifies a user when an admin takes a moderation action against them
@@ -66,6 +67,9 @@ function buildContent(
 }
 
 export async function POST(req: NextRequest) {
+  const caller = await requireStaff(req);
+  if (caller instanceof NextResponse) return caller;
+
   try {
     const {
       uid,

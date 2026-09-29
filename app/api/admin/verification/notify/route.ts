@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireStaff } from "@/lib/apiAuth";
 import admin from "firebase-admin";
 
 // Server-side route that notifies a user when an admin approves or rejects their
@@ -64,6 +65,9 @@ function buildContent(status: "approved" | "rejected", reason: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const caller = await requireStaff(req);
+  if (caller instanceof NextResponse) return caller;
+
   try {
     const { uid, status, reason = "" } = await req.json();
 

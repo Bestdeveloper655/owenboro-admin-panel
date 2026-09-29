@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireStaff } from "@/lib/apiAuth";
 import admin from "firebase-admin";
 
 function getPrivateKey() {
@@ -35,6 +36,9 @@ function extractTokens(userData: any): string[] {
 }
 
 export async function POST(req: NextRequest) {
+  const caller = await requireStaff(req);
+  if (caller instanceof NextResponse) return caller;
+
   try {
     const body = await req.json();
     console.log("📥 Incoming request body:", body);
