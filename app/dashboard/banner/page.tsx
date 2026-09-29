@@ -7,17 +7,13 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   doc,
+  serverTimestamp,
 } from "firebase/firestore";
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-} from "firebase/storage";
-import { serverTimestamp } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseServices";
-import { query, orderBy } from "firebase/firestore";
+import { deleteStorageFileByUrl } from "@/lib/adminData";
 
 /* TYPES */
 type Category = { id: string; name: string };
@@ -89,12 +85,9 @@ export default function Page() {
   /* FETCH */
   useEffect(() => {
     const fetchData = async () => {
-    const bannerQuery = query(
-  collection(db, "Banner"),
-  orderBy("createdAt", "desc") // ✅ latest first
-);
-
-const bannerSnap = await getDocs(bannerQuery);
+      // No orderBy: it would hide banners without `createdAt`, and those
+      // could then never be edited or deleted. Sorted newest-first below.
+      const bannerSnap = await getDocs(collection(db, "Banner"));
       const catSnap = await getDocs(collection(db, "Catagories"));
       const subSnap = await getDocs(collection(db, "SubCatagories"));
       const prodSnap = await getDocs(collection(db, "Products"));
@@ -118,25 +111,33 @@ const bannerSnap = await getDocs(bannerQuery);
 
       const data = bannerSnap.docs.map((d) => {
         const x = d.data();
+        // The app reads `CatagoryRef` / `SubCatagoryRef`; older panel builds
+        // wrote `categoryRef` / `subCategoryRef`.
+        const catId = (x.CatagoryRef ?? x.categoryRef)?.id || "";
+        const subId = (x.SubCatagoryRef ?? x.subCategoryRef)?.id || "";
 
-        const cat = cats.find((c) => c.id === x.categoryRef?.id);
-        const sub = subs.find((s) => s.id === x.subCategoryRef?.id);
+        const cat = cats.find((c) => c.id === catId);
+        const sub = subs.find((s) => s.id === subId);
         const prod = prods.find((p) => p.id === x.productRef?.id);
 
         return {
           id: d.id,
-          title: x.bannerName,
-          categoryId: x.categoryRef?.id || "",
-          subCategoryId: x.subCategoryRef?.id || "",
+          title: x.bannerName || "",
+          categoryId: catId,
+          subCategoryId: subId,
           productId: x.productRef?.id || "",
           category: cat?.name || "",
           subCategory: sub?.name || "",
           product: prod?.name || "",
-          image: x.image,
+          image: x.image || "",
           path: x.path || "",
+          createdAt: x.createdAt?.toDate ? x.createdAt.toDate() : null,
         };
       });
 
+      data.sort(
+        (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0),
+      );
       setBanners(data);
       setCategories(cats);
       setSubCategories(subs);
@@ -181,11 +182,7 @@ const bannerSnap = await getDocs(bannerQuery);
     return await getDownloadURL(r);
   };
 
-  const deleteImage = async (url: string) => {
-    try {
-      await deleteObject(ref(storage, url));
-    } catch {}
-  };
+  const deleteImage = (url: string) => deleteStorageFileByUrl(url);
 
   /* ADD */
   const handleAdd = async () => {
@@ -211,10 +208,10 @@ const bannerSnap = await getDocs(bannerQuery);
 
       const docRef = await addDoc(collection(db, "Banner"), {
         bannerName: form.title,
-        categoryRef: form.categoryId
+        CatagoryRef: form.categoryId
           ? doc(db, "Catagories", form.categoryId)
           : null,
-        subCategoryRef: form.subCategoryId
+        SubCatagoryRef: form.subCategoryId
           ? doc(db, "SubCatagories", form.subCategoryId)
           : null,
         productRef: form.productId ? doc(db, "Products", form.productId) : null,
@@ -279,15 +276,17 @@ const bannerSnap = await getDocs(bannerQuery);
 
       await updateDoc(doc(db, "Banner", editing.id), {
         bannerName: form.title,
-        categoryRef: form.categoryId
+        CatagoryRef: form.categoryId
           ? doc(db, "Catagories", form.categoryId)
           : null,
-        subCategoryRef: form.subCategoryId
+        SubCatagoryRef: form.subCategoryId
           ? doc(db, "SubCatagories", form.subCategoryId)
           : null,
         productRef: form.productId ? doc(db, "Products", form.productId) : null,
         image: imageUrl,
         path,
+        categoryRef: deleteField(),
+        subCategoryRef: deleteField(),
       });
 
       setBanners((prev) =>

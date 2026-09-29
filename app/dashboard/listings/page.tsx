@@ -1,29 +1,35 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   collection,
   getDocs,
-  deleteDoc,
   doc,
   updateDoc,
   setDoc,
   query,
-  orderBy,
-  limit,
+  where,
+  serverTimestamp,
+  Timestamp,
+  type DocumentReference,
 } from "firebase/firestore";
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-} from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 import { db, storage } from "@/lib/firebaseServices";
+import {
+  asOrder,
+  deleteDocDeep,
+  deleteStorageFileByUrl,
+  nextOrder,
+  sortByOrder,
+  writeSequence,
+} from "@/lib/adminData";
+import { listingGroupKey, nextRecommendedOrder } from "@/lib/products";
 
 /* TYPES */
-type Category = { id: string; name: string };
-type SubCategory = { id: string; name: string; categoryId: string };
+type Category = { id: string; name: string; order: number | null };
+type SubCategory = { id: string; name: string; categoryId: string; order: number | null };
 
 type Listing = {
   id: string;
@@ -33,16 +39,25 @@ type Listing = {
   categoryId: string;
   subCategoryId: string;
   location: string;
+  locationUrl: string;
   about: string;
   shortDescription: string;
   time: string;
-  contact: string;
-  image?: string;
-  websiteUrl?: string;
-  facebookUrl?: string;
-  locationUrl?: string;
-  order?: number;
-  recommended?: boolean;
+  startTimeString: string;
+  endTimeString: string;
+  startTime: Date | null;
+  lastTime: Date | null;
+  phone: string;
+  email: string;
+  websiteUrl: string;
+  facebookUrl: string;
+  /* Raw stored URLs; the app reads `image` first and falls back to `imageUrl`. */
+  imageField: string;
+  imageUrlField: string;
+  image: string;
+  order: number | null;
+  recommended: boolean;
+  recommendedOrder: number | null;
 };
 
 type ListingForm = {
@@ -50,14 +65,18 @@ type ListingForm = {
   categoryId: string;
   subCategoryId: string;
   location: string;
+  locationUrl: string;
   about: string;
   shortDescription: string;
   time: string;
-  contact: string;
+  startTimeString: string;
+  endTimeString: string;
+  startTime: string;
+  lastTime: string;
+  phone: string;
+  email: string;
   websiteUrl: string;
   facebookUrl: string;
-  locationUrl: string;
-  order: number | "";
   recommended: boolean;
 };
 
@@ -66,18 +85,36 @@ const EMPTY_FORM: ListingForm = {
   categoryId: "",
   subCategoryId: "",
   location: "",
+  locationUrl: "",
   about: "",
   shortDescription: "",
   time: "",
-  contact: "",
+  startTimeString: "",
+  endTimeString: "",
+  startTime: "",
+  lastTime: "",
+  phone: "",
+  email: "",
   websiteUrl: "",
   facebookUrl: "",
-  locationUrl: "",
-  order: "",
   recommended: false,
 };
 
 type RecommendedFilter = "all" | "recommended" | "not";
+
+const toDate = (value: unknown): Date | null =>
+  value instanceof Timestamp ? value.toDate() : null;
+
+/* <input type="datetime-local"> works in local time without a zone suffix. */
+const toLocalInput = (date: Date | null) => {
+  if (!date) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+};
+
+const fromLocalInput = (value: string) => (value ? Timestamp.fromDate(new Date(value)) : null);
 
 export default function Page() {
   const [listings, setListings] = useState<Listing[]>([]);
@@ -87,7 +124,7 @@ export default function Page() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Listing | null>(null);
   const [deleting, setDeleting] = useState<Listing | null>(null);
-  const [dragged, setDragged] = useState<Listing | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
 
   const [file, setFile] = useState<File | null>(null);
   const [removeExistingImage, setRemoveExistingImage] = useState(false);
@@ -98,15 +135,36 @@ export default function Page() {
   const [form, setForm] = useState<ListingForm>(EMPTY_FORM);
 
   const [filter, setFilter] = useState<RecommendedFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [search, setSearch] = useState("");
 
   const imageCacheRef = useRef<Map<string, string>>(new Map());
 
   /* FILTERED + PAGINATION */
   const filteredListings = useMemo(() => {
-    if (filter === "recommended") return listings.filter((l) => l.recommended);
-    if (filter === "not") return listings.filter((l) => !l.recommended);
-    return listings;
-  }, [listings, filter]);
+    const q = search.trim().toLowerCase();
+    return listings.filter((l) => {
+      if (filter === "recommended" && !l.recommended) return false;
+      if (filter === "not" && l.recommended) return false;
+      if (categoryFilter && l.categoryId !== categoryFilter) return false;
+      if (q && !l.title.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [listings, filter, categoryFilter, search]);
+
+  /* Rank within its sub category (or category), matching the app's order. */
+  const rankById = useMemo(() => {
+    const seen = new Map<string, number>();
+    const ranks = new Map<string, number>();
+    sortByOrder(listings, (l) => l.order).forEach((l) => {
+      if (l.order === null) return;
+      const key = listingGroupKey(l.categoryId, l.subCategoryId);
+      const n = (seen.get(key) ?? 0) + 1;
+      seen.set(key, n);
+      ranks.set(l.id, n);
+    });
+    return ranks;
+  }, [listings]);
 
   const [page, setPage] = useState(1);
   const perPage = 12;
@@ -131,49 +189,70 @@ export default function Page() {
         getDocs(collection(db, "SubCatagories")),
       ]);
 
-      const cats: Category[] = catSnap.docs.map((d) => ({
-        id: d.id,
-        name: d.data().catagoryName || "Untitled Category",
-      }));
+      const cats: Category[] = sortByOrder(
+        catSnap.docs.map((d) => ({
+          id: d.id,
+          name: d.data().catagoryName || "Untitled Category",
+          order: asOrder(d.data().order),
+        })),
+        (c) => c.order,
+      );
 
-      const subs: SubCategory[] = subSnap.docs.map((d) => ({
-        id: d.id,
-        name:
-          d.data().name || d.data().subCategoryName || "Untitled Sub Category",
-        categoryId: d.data().catagoriesRef?.id || "",
-      }));
+      const subs: SubCategory[] = sortByOrder(
+        subSnap.docs.map((d) => ({
+          id: d.id,
+          name: d.data().name || d.data().subCategoryName || "Untitled Sub Category",
+          categoryId: d.data().catagoriesRef?.id || "",
+          order: asOrder(d.data().order),
+        })),
+        (s) => s.order,
+      );
+
+      const catIndex = new Map(cats.map((c, i) => [c.id, i]));
+      const subIndex = new Map(subs.map((s, i) => [s.id, i]));
 
       const data: Listing[] = productSnap.docs.map((d) => {
         const x = d.data();
-
         const catId = x.catagoryRef?.id || "";
         const subId = x.subCatagoryRef?.id || "";
-
-        const cat = cats.find((c) => c.id === catId);
-        const sub = subs.find((s) => s.id === subId);
+        const imageField = typeof x.image === "string" ? x.image : "";
+        const imageUrlField = typeof x.imageUrl === "string" ? x.imageUrl : "";
 
         return {
           id: d.id,
           title: x.productName || "",
-          category: cat?.name || "",
-          subCategory: sub?.name || "",
+          category: cats.find((c) => c.id === catId)?.name || "",
+          subCategory: subs.find((s) => s.id === subId)?.name || "",
           categoryId: catId,
           subCategoryId: subId,
           location: x.productLocation || "",
+          locationUrl: x.locationUrl || "",
           about: x.about || "",
           shortDescription: x.shortDescription || "",
           time: x.time || "",
-          contact: x.contactInfo || "",
-          image: x.imageUrl || "",
+          startTimeString: x.startTimeString || "",
+          endTimeString: x.endTimeString || "",
+          startTime: toDate(x.startTime),
+          lastTime: toDate(x.lastTime),
+          phone: x.phone_number || x.contactInfo || "",
+          email: x.email || "",
           websiteUrl: x.websiteUrl || "",
           facebookUrl: x.facebookUrl || "",
-          locationUrl: x.locationUrl || "",
-          order: x.order ?? 999,
+          imageField,
+          imageUrlField,
+          image: imageField || imageUrlField,
+          order: asOrder(x.order),
           recommended: x.recommended === true,
+          recommendedOrder: asOrder(x.recommendedOrder),
         };
       });
 
-      const sorted = data.sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+      // Directory order: category, then sub category, then position within it.
+      const sorted = sortByOrder(data, (l) => l.order).sort(
+        (a, b) =>
+          (catIndex.get(a.categoryId) ?? 1e9) - (catIndex.get(b.categoryId) ?? 1e9) ||
+          (subIndex.get(a.subCategoryId) ?? -1) - (subIndex.get(b.subCategoryId) ?? -1),
+      );
 
       setListings(sorted);
       setCategories(cats);
@@ -206,13 +285,14 @@ export default function Page() {
 
   useEffect(() => {
     setPage(1);
-  }, [filter]);
+  }, [filter, categoryFilter, search]);
 
   /* HELPERS */
   const filteredSubs = useMemo(
     () => subCategories.filter((s) => s.categoryId === form.categoryId),
     [subCategories, form.categoryId],
   );
+  const categoryHasSubs = filteredSubs.length > 0;
 
   const closeModal = () => {
     setAdding(false);
@@ -239,43 +319,38 @@ export default function Page() {
     setFile(null);
     setRemoveExistingImage(false);
     setForm({
-      title: listing.title || "",
-      categoryId: listing.categoryId || "",
-      subCategoryId: listing.subCategoryId || "",
-      location: listing.location || "",
-      about: listing.about || "",
-      shortDescription: listing.shortDescription || "",
-      time: listing.time || "",
-      contact: listing.contact || "",
-      websiteUrl: listing.websiteUrl || "",
-      facebookUrl: listing.facebookUrl || "",
-      locationUrl: listing.locationUrl || "",
-      order: listing.order ?? "",
-      recommended: listing.recommended === true,
+      title: listing.title,
+      categoryId: listing.categoryId,
+      subCategoryId: listing.subCategoryId,
+      location: listing.location,
+      locationUrl: listing.locationUrl,
+      about: listing.about,
+      shortDescription: listing.shortDescription,
+      time: listing.time,
+      startTimeString: listing.startTimeString,
+      endTimeString: listing.endTimeString,
+      startTime: toLocalInput(listing.startTime),
+      lastTime: toLocalInput(listing.lastTime),
+      phone: listing.phone,
+      email: listing.email,
+      websiteUrl: listing.websiteUrl,
+      facebookUrl: listing.facebookUrl,
+      recommended: listing.recommended,
     });
     setError("");
   };
 
   const validateForm = () => {
     if (!form.categoryId) return "Please select a category.";
-    // if (!form.subCategoryId) return "Please select a sub category.";
+    if (categoryHasSubs && !form.subCategoryId) {
+      return "Please select a sub category. This category has sub categories, so the app only lists listings inside one.";
+    }
     if (!form.title.trim()) return "Title is required.";
-
-    // ✅ IMAGE MANDATORY FIX
-    if (adding && !file) {
-      return "Image is required.";
+    if (adding && !file) return "Image is required.";
+    if (editing && removeExistingImage && !file) return "Image is required.";
+    if (form.startTime && form.lastTime && new Date(form.lastTime) < new Date(form.startTime)) {
+      return "End date/time must be after the start date/time.";
     }
-
-    if (editing) {
-      if (removeExistingImage && !file) {
-        return "Image is required.";
-      }
-    }
-
-    if (form.order !== "" && Number(form.order) < 1) {
-      return "Order must be greater than 0.";
-    }
-
     return "";
   };
 
@@ -286,60 +361,80 @@ export default function Page() {
     return await getDownloadURL(storageRef);
   };
 
-  const safelyDeleteImageByUrl = async (url?: string) => {
-    if (!url) return;
-    try {
-      const imageRef = ref(storage, url);
-      await deleteObject(imageRef);
-    } catch (err) {
-      console.error("Image delete skipped/failed:", err);
+  const deleteListingImages = async (listing: Listing) => {
+    await deleteStorageFileByUrl(listing.imageField);
+    if (listing.imageUrlField && listing.imageUrlField !== listing.imageField) {
+      await deleteStorageFileByUrl(listing.imageUrlField);
     }
   };
 
-  const getNextOrder = async () => {
-    const q = query(
-      collection(db, "Products"),
-      orderBy("order", "desc"),
-      limit(1),
-    );
-
-    const snap = await getDocs(q);
-    if (snap.empty) return 1;
-
-    const lastOrder = snap.docs[0].data().order || 0;
-    return lastOrder + 1;
+  /* Current members of a listing's order group, read fresh from Firestore so
+   * two admins adding listings at once don't both take the same slot. */
+  const fetchGroup = async (categoryId: string, subCategoryId: string) => {
+    const snap = subCategoryId
+      ? await getDocs(
+          query(
+            collection(db, "Products"),
+            where("subCatagoryRef", "==", doc(db, "SubCatagories", subCategoryId)),
+          ),
+        )
+      : await getDocs(
+          query(
+            collection(db, "Products"),
+            where("catagoryRef", "==", doc(db, "Catagories", categoryId)),
+          ),
+        );
+    return snap.docs
+      .filter((d) => subCategoryId || !d.data().subCatagoryRef)
+      .map((d) => ({ id: d.id, order: asOrder(d.data().order) }));
   };
 
-  const normalizeOrders = (items: Listing[]) =>
-    items
-      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
-      .map((item, index) => ({
-        ...item,
-        order: index + 1,
-      }));
-
-  const insertListingAtOrder = (
-    currentListings: Listing[],
-    item: Listing,
-    targetOrder: number,
-  ) => {
-    const withoutItem = currentListings.filter((l) => l.id !== item.id);
-    const normalized = normalizeOrders(withoutItem);
-
-    const insertIndex = Math.min(
-      Math.max(targetOrder - 1, 0),
-      normalized.length,
+  /* Re-number a group 0..n-1 after a listing leaves it. */
+  const compactGroup = async (categoryId: string, subCategoryId: string, leavingId: string) => {
+    if (!categoryId && !subCategoryId) return;
+    const members = sortByOrder(
+      (await fetchGroup(categoryId, subCategoryId)).filter((m) => m.id !== leavingId),
+      (m) => m.order,
     );
+    await writeSequence("Products", members.map((m) => m.id));
+  };
 
-    normalized.splice(insertIndex, 0, {
-      ...item,
-      order: targetOrder,
-    });
+  /* Every field the mobile app reads, with the exact type it casts to. */
+  const buildPayload = (
+    imageUrl: string,
+    order: number,
+    recommendedOrder: number | null,
+  ) => {
+    const catRef: DocumentReference = doc(db, "Catagories", form.categoryId);
+    const subRef: DocumentReference | null = form.subCategoryId
+      ? doc(db, "SubCatagories", form.subCategoryId)
+      : null;
+    const phone = form.phone.trim();
 
-    return normalized.map((entry, index) => ({
-      ...entry,
-      order: index + 1,
-    }));
+    return {
+      productName: form.title.trim(),
+      shortDescription: form.shortDescription.trim(),
+      about: form.about.trim(),
+      productLocation: form.location.trim(),
+      locationUrl: form.locationUrl.trim(),
+      image: imageUrl,
+      imageUrl,
+      phone_number: phone,
+      contactInfo: phone,
+      email: form.email.trim(),
+      websiteUrl: form.websiteUrl.trim(),
+      facebookUrl: form.facebookUrl.trim(),
+      time: form.time.trim(),
+      startTimeString: form.startTimeString.trim(),
+      endTimeString: form.endTimeString.trim(),
+      startTime: fromLocalInput(form.startTime),
+      lastTime: fromLocalInput(form.lastTime),
+      catagoryRef: catRef,
+      subCatagoryRef: subRef,
+      order,
+      recommended: form.recommended,
+      ...(recommendedOrder !== null ? { recommendedOrder } : {}),
+    };
   };
 
   /* ADD */
@@ -354,75 +449,17 @@ export default function Page() {
       setSaving(true);
       setError("");
 
-      const imageUrl = await uploadImage();
-      const catRef = doc(db, "Catagories", form.categoryId);
-const subRef = form.subCategoryId
-  ? doc(db, "SubCatagories", form.subCategoryId)
-  : null;      const newDocRef = doc(collection(db, "Products"));
-
-      const autoNextOrder = await getNextOrder();
-      const desiredOrder =
-        form.order !== "" ? Number(form.order) : autoNextOrder;
-
-      const cat = categories.find((c) => c.id === form.categoryId);
-      const sub = subCategories.find((s) => s.id === form.subCategoryId);
-
-      const newListing: Listing = {
-        id: newDocRef.id,
-        title: form.title,
-        category: cat?.name || "",
-        subCategory: sub?.name || "",
-        categoryId: form.categoryId,
-        subCategoryId: form.subCategoryId,
-        location: form.location,
-        about: form.about,
-        shortDescription: form.shortDescription,
-        time: form.time,
-        contact: form.contact,
-        image: imageUrl,
-        websiteUrl: form.websiteUrl,
-        facebookUrl: form.facebookUrl,
-        locationUrl: form.locationUrl,
-        order: desiredOrder,
-        recommended: form.recommended,
-      };
-
-      const reordered = insertListingAtOrder(
-        listings,
-        newListing,
-        desiredOrder,
-      );
-      const finalOrder =
-        reordered.find((entry) => entry.id === newListing.id)?.order ??
-        desiredOrder;
-
-      await Promise.all(
-        reordered
-          .filter((entry) => entry.id !== newListing.id)
-          .map((entry) =>
-            updateDoc(doc(db, "Products", entry.id), {
-              order: entry.order,
-            }),
-          ),
-      );
+      const newDocRef = doc(collection(db, "Products"));
+      const [imageUrl, group, recommendedOrder] = await Promise.all([
+        uploadImage(),
+        fetchGroup(form.categoryId, form.subCategoryId),
+        form.recommended ? nextRecommendedOrder() : Promise.resolve(null),
+      ]);
 
       await setDoc(newDocRef, {
-        productName: form.title,
-        catagoryRef: catRef,
-        subCatagoryRef: subRef,
-        productLocation: form.location,
-        about: form.about,
-        shortDescription: form.shortDescription,
-        time: form.time,
-        contactInfo: form.contact,
-        imageUrl,
-        websiteUrl: form.websiteUrl,
-        facebookUrl: form.facebookUrl,
-        locationUrl: form.locationUrl,
-        createdAt: new Date(),
+        ...buildPayload(imageUrl, nextOrder(group.map((g) => g.order)), recommendedOrder),
+        created_time: serverTimestamp(),
         productRef: newDocRef,
-        order: finalOrder,
-        recommended: form.recommended,
       });
 
       await fetchData();
@@ -450,88 +487,40 @@ const subRef = form.subCategoryId
       setSaving(true);
       setError("");
 
-      const catRef = doc(db, "Catagories", form.categoryId);
-const subRef = form.subCategoryId
-  ? doc(db, "SubCatagories", form.subCategoryId)
-  : null;
-      let nextImageUrl = editing.image || "";
-
+      let nextImageUrl = editing.image;
       if (file) {
-        if (editing.image) {
-          await safelyDeleteImageByUrl(editing.image);
-        }
+        await deleteListingImages(editing);
         nextImageUrl = await uploadImage();
       } else if (removeExistingImage) {
-        await safelyDeleteImageByUrl(editing.image);
+        await deleteListingImages(editing);
         nextImageUrl = "";
       }
 
-      const cat = categories.find((c) => c.id === form.categoryId);
-      const sub = subCategories.find((s) => s.id === form.subCategoryId);
+      const oldGroup = listingGroupKey(editing.categoryId, editing.subCategoryId);
+      const newGroup = listingGroupKey(form.categoryId, form.subCategoryId);
+      const movedGroup = oldGroup !== newGroup;
 
-      const desiredOrder =
-        form.order !== "" ? Number(form.order) : (editing.order ?? 999);
+      // Moving to another sub category appends to the end of it; staying put
+      // keeps the current position (or takes the next slot if it had none).
+      let order = editing.order;
+      if (movedGroup || order === null) {
+        const group = await fetchGroup(form.categoryId, form.subCategoryId);
+        order = nextOrder(group.filter((g) => g.id !== editing.id).map((g) => g.order));
+      }
 
-      const updatedListing: Listing = {
-        ...editing,
-        title: form.title,
-        category: cat?.name || "",
-        subCategory: sub?.name || "",
-        categoryId: form.categoryId,
-        subCategoryId: form.subCategoryId,
-        location: form.location,
-        about: form.about,
-        shortDescription: form.shortDescription,
-        time: form.time,
-        contact: form.contact,
-        image: nextImageUrl,
-        websiteUrl: form.websiteUrl,
-        facebookUrl: form.facebookUrl,
-        locationUrl: form.locationUrl,
-        order: desiredOrder,
-        recommended: form.recommended,
-      };
+      let recommendedOrder: number | null = null;
+      if (form.recommended && (!editing.recommended || editing.recommendedOrder === null)) {
+        recommendedOrder = await nextRecommendedOrder(editing.id);
+      }
 
-      const updatedListings = listings.map((item) =>
-        item.id === editing.id ? updatedListing : item,
+      await updateDoc(
+        doc(db, "Products", editing.id),
+        buildPayload(nextImageUrl, order, recommendedOrder),
       );
 
-      const reordered = insertListingAtOrder(
-        updatedListings,
-        updatedListing,
-        desiredOrder,
-      );
-
-      const finalOrder =
-        reordered.find((entry) => entry.id === editing.id)?.order ??
-        desiredOrder;
-
-      await Promise.all(
-        reordered
-          .filter((entry) => entry.id !== editing.id)
-          .map((entry) =>
-            updateDoc(doc(db, "Products", entry.id), {
-              order: entry.order,
-            }),
-          ),
-      );
-
-      await updateDoc(doc(db, "Products", editing.id), {
-        productName: form.title,
-        catagoryRef: catRef,
-        subCatagoryRef: subRef,
-        productLocation: form.location,
-        about: form.about,
-        shortDescription: form.shortDescription,
-        time: form.time,
-        contactInfo: form.contact,
-        imageUrl: nextImageUrl,
-        websiteUrl: form.websiteUrl,
-        facebookUrl: form.facebookUrl,
-        locationUrl: form.locationUrl,
-        order: finalOrder,
-        recommended: form.recommended,
-      });
+      if (movedGroup) {
+        await compactGroup(editing.categoryId, editing.subCategoryId, editing.id);
+      }
 
       await fetchData();
       closeModal();
@@ -543,7 +532,8 @@ const subRef = form.subCategoryId
     }
   };
 
-  /* TOGGLE RECOMMENDED */
+  /* TOGGLE RECOMMENDED — switching on appends to the end of the Recommended
+   * row; switching off leaves `recommendedOrder` in place (A1). */
   const toggleRecommended = async (item: Listing) => {
     const next = !item.recommended;
 
@@ -552,9 +542,16 @@ const subRef = form.subCategoryId
     );
 
     try {
+      const recommendedOrder = next ? await nextRecommendedOrder(item.id) : null;
       await updateDoc(doc(db, "Products", item.id), {
         recommended: next,
+        ...(recommendedOrder !== null ? { recommendedOrder } : {}),
       });
+      if (recommendedOrder !== null) {
+        setListings((prev) =>
+          prev.map((l) => (l.id === item.id ? { ...l, recommendedOrder } : l)),
+        );
+      }
     } catch (err) {
       console.error(err);
       setError("Failed to update recommended state.");
@@ -566,81 +563,45 @@ const subRef = form.subCategoryId
     }
   };
 
-  /* DRAG DROP - AUTO SAVE */
-  const handleDropRow = async (target: Listing) => {
-    if (!dragged || dragged.id === target.id) return;
-
-    try {
-      const updated = [...listings];
-      const from = updated.findIndex((i) => i.id === dragged.id);
-      const to = updated.findIndex((i) => i.id === target.id);
-      if (from === -1 || to === -1) return;
-
-      const [moved] = updated.splice(from, 1);
-      updated.splice(to, 0, moved);
-
-      const reordered = updated.map((item, index) => ({
-        ...item,
-        order: index + 1,
-      }));
-
-      setListings(reordered);
-      setDragged(null);
-
-      await Promise.all(
-        reordered.map((item) =>
-          updateDoc(doc(db, "Products", item.id), {
-            order: item.order ?? 999,
-          }),
-        ),
-      );
-    } catch (err) {
-      console.error(err);
-      setError("Failed to reorder listings.");
-    }
-  };
-
   /* DELETE */
   const confirmDelete = async () => {
     if (!deleting) return;
 
     try {
-      await deleteDoc(doc(db, "Products", deleting.id));
-      await safelyDeleteImageByUrl(deleting.image);
+      setDeletingBusy(true);
+      await deleteDocDeep(doc(db, "Products", deleting.id), { Reviews: [] });
+      await deleteListingImages(deleting);
+      await compactGroup(deleting.categoryId, deleting.subCategoryId, deleting.id);
 
-      const remaining = listings.filter((l) => l.id !== deleting.id);
-      const reorderedRemaining = remaining.map((item, index) => ({
-        ...item,
-        order: index + 1,
-      }));
-
-      setListings(reorderedRemaining);
       setDeleting(null);
-
-      await Promise.all(
-        reorderedRemaining.map((item) =>
-          updateDoc(doc(db, "Products", item.id), {
-            order: item.order ?? 999,
-          }),
-        ),
-      );
-
-      const nextTotalPages = Math.max(1, Math.ceil(remaining.length / perPage));
-      if (page > nextTotalPages) {
-        setPage(nextTotalPages);
-      }
+      await fetchData();
     } catch (err) {
       console.error(err);
       setError("Failed to delete listing.");
       setDeleting(null);
+    } finally {
+      setDeletingBusy(false);
     }
   };
 
-  const currentImagePreview = file
-    ? URL.createObjectURL(file)
-    : editing && !removeExistingImage
-      ? editing.image || ""
-      : "";
+  const currentImagePreview = useMemo(
+    () =>
+      file
+        ? URL.createObjectURL(file)
+        : editing && !removeExistingImage
+          ? editing.image
+          : "",
+    [file, editing, removeExistingImage],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (currentImagePreview.startsWith("blob:")) URL.revokeObjectURL(currentImagePreview);
+    };
+  }, [currentImagePreview]);
+
+  const setField = <K extends keyof ListingForm>(key: K, value: ListingForm[K]) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
 
   return (
     <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
@@ -653,36 +614,68 @@ const subRef = form.subCategoryId
           <p className="mt-2 text-base font-medium text-[#e8dcc7] sm:text-lg md:text-xl">
             Manage and organize all published platform listings.
           </p>
+          <p className="mt-1 text-sm text-[#e8dcc7]/70">
+            To change the order listings appear in, use{" "}
+            <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
+              Display Order
+            </Link>{" "}
+            or{" "}
+            <Link href="/dashboard/recommended" className="text-[#ff7a59] underline">
+              Recommended
+            </Link>
+            .
+          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
-            {(["all", "recommended", "not"] as RecommendedFilter[]).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFilter(f)}
-                className={`rounded-lg px-3 py-1.5 transition sm:px-4 ${
-                  filter === f
-                    ? "bg-[#ff7a59] text-white"
-                    : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
-                }`}
-              >
-                {f === "all"
-                  ? "All"
-                  : f === "recommended"
-                    ? "Recommended"
-                    : "Not Recommended"}
-              </button>
-            ))}
-          </div>
+        <button
+          onClick={openAddModal}
+          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white sm:self-auto sm:px-5 sm:text-base"
+        >
+          Add Listing
+        </button>
+      </div>
 
-          <button
-            onClick={openAddModal}
-            className="rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white sm:px-5 sm:text-base"
-          >
-            Add Listing
-          </button>
+      {/* FILTERS */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by title…"
+          className="w-full rounded-xl border border-white/15 bg-[#0a0a0a] px-4 py-2 text-sm text-white outline-none placeholder:text-white/40 focus:border-[#ff7a59] sm:w-64"
+        />
+
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="rounded-xl border border-white/15 bg-[#0a0a0a] px-3 py-2 text-sm text-white outline-none focus:border-[#ff7a59]"
+        >
+          <option value="">All categories</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+
+        <div className="inline-flex rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
+          {(["all", "recommended", "not"] as RecommendedFilter[]).map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              className={`rounded-lg px-3 py-1.5 transition sm:px-4 ${
+                filter === f
+                  ? "bg-[#ff7a59] text-white"
+                  : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
+              }`}
+            >
+              {f === "all"
+                ? "All"
+                : f === "recommended"
+                  ? "Recommended"
+                  : "Not Recommended"}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -714,7 +707,7 @@ const subRef = form.subCategoryId
                 <th className="p-3">Title</th>
                 <th className="p-3">Category</th>
                 <th className="p-3">Address</th>
-                <th className="p-3">Order</th>
+                <th className="p-3">Position</th>
                 <th className="p-3">Recommended</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
@@ -724,10 +717,6 @@ const subRef = form.subCategoryId
               {paginatedData.map((l) => (
                 <tr
                   key={l.id}
-                  draggable
-                  onDragStart={() => setDragged(l)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleDropRow(l)}
                   className="border-b border-white/10 bg-[#ece2cb] text-black transition hover:bg-[#f5ecd7]"
                 >
                   <td className="p-3">
@@ -747,20 +736,29 @@ const subRef = form.subCategoryId
                   <td className="p-3 font-semibold">{l.title}</td>
 
                   <td className="p-3 text-black/60">
-                    {l.category} • {l.subCategory}
+                    {l.category || "—"}
+                    {l.subCategory ? ` • ${l.subCategory}` : ""}
                   </td>
 
                   <td className="max-w-[260px] truncate p-3 text-black/50">
-                    📍 {l.location}
+                    {l.location ? `📍 ${l.location}` : "—"}
                   </td>
 
-                  <td className="p-3">{l.order ?? "-"}</td>
+                  <td className="p-3">
+                    {l.order === null ? (
+                      <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                        Hidden in app
+                      </span>
+                    ) : (
+                      rankById.get(l.id)
+                    )}
+                  </td>
 
                   <td className="p-3">
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={!!l.recommended}
+                      aria-checked={l.recommended}
                       onClick={() => toggleRecommended(l)}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff7a59]/40 ${
                         l.recommended ? "bg-[#ff7a59]" : "bg-black/20"
@@ -799,64 +797,63 @@ const subRef = form.subCategoryId
       )}
 
       {/* PAGINATION */}
-    {/* PAGINATION */}
-<div className="mt-6 flex items-center justify-between text-[#f3ead7]">
-  <p>
-    Showing {filteredListings.length === 0 ? 0 : (safePage - 1) * perPage + 1}–
-    {Math.min(safePage * perPage, filteredListings.length)} of {filteredListings.length}
-    {filter !== "all" && (
-      <span className="text-[#f3ead7]/60"> · {listings.length} total</span>
-    )}
-  </p>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-[#f3ead7]">
+        <p>
+          Showing {filteredListings.length === 0 ? 0 : (safePage - 1) * perPage + 1}–
+          {Math.min(safePage * perPage, filteredListings.length)} of {filteredListings.length}
+          {filteredListings.length !== listings.length && (
+            <span className="text-[#f3ead7]/60"> · {listings.length} total</span>
+          )}
+        </p>
 
-  <div className="flex items-center gap-2 flex-wrap">
-    <button
-      disabled={safePage === 1}
-      onClick={() => setPage((p) => p - 1)}
-      className="rounded-xl border border-white/10 px-4 py-2 disabled:opacity-40"
-    >
-      Previous
-    </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            disabled={safePage === 1}
+            onClick={() => setPage((p) => p - 1)}
+            className="rounded-xl border border-white/10 px-4 py-2 disabled:opacity-40"
+          >
+            Previous
+          </button>
 
-    {Array.from({ length: totalPages }, (_, i) => i + 1)
-      .filter((pageNumber) => {
-        return (
-          pageNumber === 1 ||
-          pageNumber === totalPages ||
-          Math.abs(pageNumber - safePage) <= 1
-        );
-      })
-      .map((pageNumber, index, arr) => {
-        const prevPage = arr[index - 1];
-        const showDots = prevPage && pageNumber - prevPage > 1;
+          {Array.from({ length: totalPages }, (_, i) => i + 1)
+            .filter(
+              (pageNumber) =>
+                pageNumber === 1 ||
+                pageNumber === totalPages ||
+                Math.abs(pageNumber - safePage) <= 1,
+            )
+            .map((pageNumber, index, arr) => {
+              const prevPage = arr[index - 1];
+              const showDots = prevPage && pageNumber - prevPage > 1;
 
-        return (
-          <div key={pageNumber} className="flex items-center gap-2">
-            {showDots && <span className="px-2">...</span>}
+              return (
+                <div key={pageNumber} className="flex items-center gap-2">
+                  {showDots && <span className="px-2">...</span>}
 
-            <button
-              onClick={() => setPage(pageNumber)}
-              className={`rounded-xl px-4 py-2 ${
-                safePage === pageNumber
-                  ? "bg-[#ff7a59] text-white"
-                  : "border border-white/10 text-[#f3ead7]"
-              }`}
-            >
-              {pageNumber}
-            </button>
-          </div>
-        );
-      })}
+                  <button
+                    onClick={() => setPage(pageNumber)}
+                    className={`rounded-xl px-4 py-2 ${
+                      safePage === pageNumber
+                        ? "bg-[#ff7a59] text-white"
+                        : "border border-white/10 text-[#f3ead7]"
+                    }`}
+                  >
+                    {pageNumber}
+                  </button>
+                </div>
+              );
+            })}
 
-    <button
-      disabled={safePage === totalPages}
-      onClick={() => setPage((p) => p + 1)}
-      className="rounded-xl border border-white/10 px-4 py-2 disabled:opacity-40"
-    >
-      Next
-    </button>
-  </div>
-</div>
+          <button
+            disabled={safePage === totalPages}
+            onClick={() => setPage((p) => p + 1)}
+            className="rounded-xl border border-white/10 px-4 py-2 disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      </div>
+
       {/* ADD / EDIT MODAL */}
       {(adding || editing) && (
         <Modal
@@ -869,15 +866,13 @@ const subRef = form.subCategoryId
             </div>
           )}
 
+          <SectionTitle>Where it appears</SectionTitle>
+
           <Select
             label="Category"
             value={form.categoryId}
             onChange={(v: string) =>
-              setForm((prev) => ({
-                ...prev,
-                categoryId: v,
-                subCategoryId: "",
-              }))
+              setForm((prev) => ({ ...prev, categoryId: v, subCategoryId: "" }))
             }
             options={categories}
             placeholder="Please select a category"
@@ -886,44 +881,36 @@ const subRef = form.subCategoryId
           <Select
             label="Sub Category"
             value={form.subCategoryId}
-            onChange={(v: string) =>
-              setForm((prev) => ({ ...prev, subCategoryId: v }))
-            }
+            onChange={(v: string) => setField("subCategoryId", v)}
             options={filteredSubs}
-            placeholder="Please select a sub category"
-          />
-
-          <Input
-            label="Title"
-            value={form.title}
-            onChange={(v: string) => setForm((prev) => ({ ...prev, title: v }))}
-          />
-
-          <Input
-            label="Order"
-            value={form.order === "" ? "" : String(form.order)}
-            onChange={(v: string) =>
-              setForm((prev) => ({
-                ...prev,
-                order: v === "" ? "" : Number(v),
-              }))
+            disabled={!form.categoryId || !categoryHasSubs}
+            placeholder={
+              !form.categoryId
+                ? "Select a category first"
+                : categoryHasSubs
+                  ? "Please select a sub category"
+                  : "This category has no sub categories"
             }
           />
+          {adding && form.categoryId && (
+            <p className="mt-1 text-xs text-black/55">
+              New listings are added at the end of the{" "}
+              {categoryHasSubs ? "sub category" : "category"}. Reorder them in Display Order.
+            </p>
+          )}
 
           <div className="mt-4 flex items-center justify-between rounded-xl border border-[#ff7a59]/40 bg-white/40 px-4 py-3">
             <div>
               <p className="text-black font-semibold">Show in Recommended</p>
               <p className="text-xs text-black/60">
-                When enabled, this listing appears in the app&rsquo;s recommended row.
+                Adds this listing to the end of the app&rsquo;s Recommended row.
               </p>
             </div>
             <button
               type="button"
               role="switch"
               aria-checked={form.recommended}
-              onClick={() =>
-                setForm((prev) => ({ ...prev, recommended: !prev.recommended }))
-              }
+              onClick={() => setField("recommended", !form.recommended)}
               className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff7a59]/40 ${
                 form.recommended ? "bg-[#ff7a59]" : "bg-black/20"
               }`}
@@ -936,65 +923,89 @@ const subRef = form.subCategoryId
             </button>
           </div>
 
+          <SectionTitle>Details</SectionTitle>
+
+          <Input label="Title" value={form.title} onChange={(v) => setField("title", v)} />
+
           <Input
             label="Short Description"
+            hint="Shown as the bio on home cards."
             value={form.shortDescription}
-            onChange={(v: string) =>
-              setForm((prev) => ({ ...prev, shortDescription: v }))
-            }
+            onChange={(v) => setField("shortDescription", v)}
           />
 
           <Textarea
             label="About"
+            hint="Shown on the listing's detail page."
             value={form.about}
-            onChange={(v: string) => setForm((prev) => ({ ...prev, about: v }))}
+            onChange={(v) => setField("about", v)}
           />
 
           <Input
-            label="Address"
-            value={form.location}
-            onChange={(v: string) =>
-              setForm((prev) => ({ ...prev, location: v }))
-            }
-          />
-
-          <Input
-            label="Time"
+            label="Hours / Time"
+            hint='Free text, e.g. "Mon–Fri 9am–5pm".'
             value={form.time}
-            onChange={(v: string) => setForm((prev) => ({ ...prev, time: v }))}
+            onChange={(v) => setField("time", v)}
           />
 
+          <SectionTitle>Location & contact</SectionTitle>
+
+          <Input label="Address" value={form.location} onChange={(v) => setField("location", v)} />
+
           <Input
-            label="Contact"
-            value={form.contact}
-            onChange={(v: string) =>
-              setForm((prev) => ({ ...prev, contact: v }))
-            }
+            label="Maps link (optional)"
+            hint="Opened when someone taps the address."
+            value={form.locationUrl}
+            onChange={(v) => setField("locationUrl", v)}
           />
+
+          <Input label="Phone" value={form.phone} onChange={(v) => setField("phone", v)} />
+
+          <Input label="Email" type="email" value={form.email} onChange={(v) => setField("email", v)} />
 
           <Input
             label="Website URL"
             value={form.websiteUrl}
-            onChange={(v: string) =>
-              setForm((prev) => ({ ...prev, websiteUrl: v }))
-            }
+            onChange={(v) => setField("websiteUrl", v)}
           />
 
           <Input
             label="Facebook URL"
             value={form.facebookUrl}
-            onChange={(v: string) =>
-              setForm((prev) => ({ ...prev, facebookUrl: v }))
-            }
+            onChange={(v) => setField("facebookUrl", v)}
           />
 
-          {/* <Input
-            label="Location URL (Google Maps)"
-            value={form.locationUrl}
-            onChange={(v: string) =>
-              setForm((prev) => ({ ...prev, locationUrl: v }))
-            }
-          /> */}
+          <SectionTitle>Event time (optional)</SectionTitle>
+          <p className="text-xs text-black/55">
+            Shown on cards in pop-up, live music, culture and art sub categories.
+          </p>
+
+          <div className="grid gap-x-4 sm:grid-cols-2">
+            <Input
+              label="Start time text"
+              hint='e.g. "7:00 PM"'
+              value={form.startTimeString}
+              onChange={(v) => setField("startTimeString", v)}
+            />
+            <Input
+              label="End time text"
+              hint='e.g. "10:00 PM"'
+              value={form.endTimeString}
+              onChange={(v) => setField("endTimeString", v)}
+            />
+            <Input
+              label="Start date & time"
+              type="datetime-local"
+              value={form.startTime}
+              onChange={(v) => setField("startTime", v)}
+            />
+            <Input
+              label="End date & time"
+              type="datetime-local"
+              value={form.lastTime}
+              onChange={(v) => setField("lastTime", v)}
+            />
+          </div>
 
           <div className="mt-5">
             <label className="text-black text-sm font-semibold">Image</label>
@@ -1077,7 +1088,8 @@ const subRef = form.subCategoryId
           </p>
 
           <p className="mt-2 text-sm text-black/60">
-            This action will remove the listing from your dashboard.
+            The listing, its reviews and its image are removed from the app. This
+            can&rsquo;t be undone.
           </p>
 
           <div className="mt-6 flex justify-end gap-3">
@@ -1089,9 +1101,10 @@ const subRef = form.subCategoryId
             </button>
             <button
               onClick={confirmDelete}
-              className="rounded-xl bg-red-500 px-4 py-2 text-white"
+              disabled={deletingBusy}
+              className="rounded-xl bg-red-500 px-4 py-2 text-white disabled:opacity-60"
             >
-              Delete
+              {deletingBusy ? "Deleting…" : "Delete"}
             </button>
           </div>
         </Modal>
@@ -1129,23 +1142,37 @@ function Modal({
   );
 }
 
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="mt-6 border-b border-black/10 pb-1 text-sm font-bold uppercase tracking-wide text-black/60">
+      {children}
+    </h3>
+  );
+}
+
 function Input({
   label,
   value,
   onChange,
+  hint,
+  type = "text",
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  hint?: string;
+  type?: string;
 }) {
   return (
     <div className="mt-4">
       <label className="text-black text-sm font-semibold">{label}</label>
       <input
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="mt-2 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black placeholder:text-black/35 focus:outline-none focus:ring-2 focus:ring-[#ff7a59]"
       />
+      {hint && <p className="mt-1 text-xs text-black/55">{hint}</p>}
     </div>
   );
 }
@@ -1154,10 +1181,12 @@ function Textarea({
   label,
   value,
   onChange,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  hint?: string;
 }) {
   return (
     <div className="mt-4">
@@ -1167,6 +1196,7 @@ function Textarea({
         onChange={(e) => onChange(e.target.value)}
         className="mt-2 h-28 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black placeholder:text-black/35 focus:outline-none focus:ring-2 focus:ring-[#ff7a59]"
       />
+      {hint && <p className="mt-1 text-xs text-black/55">{hint}</p>}
     </div>
   );
 }
@@ -1177,20 +1207,23 @@ function Select({
   onChange,
   options,
   placeholder,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: Array<{ id: string; name: string }>;
   placeholder: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="mt-4">
       <label className="text-black text-sm font-semibold">{label}</label>
       <select
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-2 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black focus:outline-none focus:ring-2 focus:ring-[#ff7a59]"
+        className="mt-2 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black focus:outline-none focus:ring-2 focus:ring-[#ff7a59] disabled:cursor-not-allowed disabled:opacity-60"
       >
         <option value="">{placeholder}</option>
         {options.map((o) => (
