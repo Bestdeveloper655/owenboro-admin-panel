@@ -11,16 +11,22 @@ type MenuItem = {
   adminOnly?: boolean;
 };
 
-const menuItems: MenuItem[] = [
+/* adminOnly: screens that write collections whose Firestore rules allow
+ * `role == 'admin'` only (directory content, ContactUs, posts). Moderators
+ * would only hit permission errors there, so they don't see them. */
+export const menuItems: MenuItem[] = [
   { name: "Dashboard", path: "/dashboard" },
-  { name: "Category", path: "/dashboard/category" },
-  { name: "Sub Category", path: "/dashboard/sub-category" },
-  { name: "Listings", path: "/dashboard/listings" },
-  { name: "Banner", path: "/dashboard/banner" },
-  { name: "Header Image", path: "/dashboard/header-image" },
-  { name: "Challenge", path: "/dashboard/challenge" },
-  { name: "Vote for Favourite", path: "/dashboard/vote" },
-  { name: "Contact Support", path: "/dashboard/contact" },
+  { name: "Category", path: "/dashboard/category", adminOnly: true },
+  { name: "Sub Category", path: "/dashboard/sub-category", adminOnly: true },
+  { name: "Listings", path: "/dashboard/listings", adminOnly: true },
+  { name: "Recommended", path: "/dashboard/recommended", adminOnly: true },
+  { name: "Display Order", path: "/dashboard/display-order", adminOnly: true },
+  { name: "Banner", path: "/dashboard/banner", adminOnly: true },
+  { name: "Header Image", path: "/dashboard/header-image", adminOnly: true },
+  { name: "Challenge", path: "/dashboard/challenge", adminOnly: true },
+  { name: "Vote for Favourite", path: "/dashboard/vote", adminOnly: true },
+  { name: "Feed Posts", path: "/dashboard/feed-posts", adminOnly: true },
+  { name: "Contact Support", path: "/dashboard/contact", adminOnly: true },
   { name: "User Info", path: "/dashboard/users" },
   { name: "Newsletter", path: "/dashboard/newsletter" },
   { name: "Verify Photos", path: "/dashboard/verify-photos" },
@@ -31,6 +37,14 @@ const menuItems: MenuItem[] = [
   { name: "Reports", path: "/dashboard/reports" },
   { name: "Moderators", path: "/dashboard/moderators", adminOnly: true },
 ];
+
+export function isAdminOnlyPath(pathname: string): boolean {
+  return menuItems.some(
+    (item) =>
+      item.adminOnly &&
+      (pathname === item.path || pathname.startsWith(`${item.path}/`)),
+  );
+}
 
 type Props = {
   open?: boolean;

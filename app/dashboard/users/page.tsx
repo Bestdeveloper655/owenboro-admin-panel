@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseServices";
 import { notifyModeration } from "@/lib/moderationNotify";
+import { authedFetch } from "@/lib/authedFetch";
 
 type User = {
   id: string;
@@ -28,7 +29,39 @@ type User = {
   subStore: string;
   subProductId: string;
   promoOptIn: boolean | null;
+  age: number | null;
+  gender: string;
 };
+
+/* Same buckets the mobile app uses for its auto-groups, so counts match. */
+type AgeBucket = { key: string; label: string; min: number; max: number };
+const AGE_BUCKETS: AgeBucket[] = [
+  { key: "18-24", label: "18–24", min: 18, max: 24 },
+  { key: "25-29", label: "25–29", min: 25, max: 29 },
+  { key: "30-39", label: "30–39", min: 30, max: 39 },
+  { key: "40-54", label: "40–54", min: 40, max: 54 },
+  { key: "55+", label: "55+", min: 55, max: Infinity },
+];
+type GenderFilter = "all" | "Male" | "Female";
+
+/* `age` is written once at profile creation, so prefer recomputing it from
+ * `date_of_birth`; fall back to the stored int. */
+function resolveAge(dob: unknown, stored: unknown): number | null {
+  const date =
+    dob && typeof (dob as { toDate?: unknown }).toDate === "function"
+      ? (dob as { toDate: () => Date }).toDate()
+      : null;
+  if (date && !Number.isNaN(date.getTime())) {
+    const now = new Date();
+    let age = now.getFullYear() - date.getFullYear();
+    const beforeBirthday =
+      now.getMonth() < date.getMonth() ||
+      (now.getMonth() === date.getMonth() && now.getDate() < date.getDate());
+    if (beforeBirthday) age -= 1;
+    return age >= 0 && age < 130 ? age : null;
+  }
+  return typeof stored === "number" && Number.isInteger(stored) ? stored : null;
+}
 
 /* An admin-granted "VIP" is a complimentary lifetime subscription: the mobile
  * app reads the `subscription` map (via RevenueCat) to unlock premium features.
@@ -112,6 +145,8 @@ export default function Page() {
               : x.promo_opt_in === false
                 ? false
                 : null,
+          age: resolveAge(x.date_of_birth, x.age),
+          gender: x.gender === "Male" || x.gender === "Female" ? x.gender : "",
         };
       });
 
@@ -128,31 +163,49 @@ export default function Page() {
     fetchUsers();
   }, []);
 
-  /* SEARCH FILTER */
+  const [genderFilter, setGenderFilter] = useState<GenderFilter>("all");
+  const [ageFilter, setAgeFilter] = useState<string>("all");
+
+  /* SEARCH + GENDER + AGE FILTER */
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) =>
-      [u.name, u.email, u.phone, u.uid]
-        .filter(Boolean)
-        .some((field) => field.toLowerCase().includes(q)),
-    );
-  }, [users, search]);
+    const bucket = AGE_BUCKETS.find((b) => b.key === ageFilter);
+    return users.filter((u) => {
+      if (genderFilter !== "all" && u.gender !== genderFilter) return false;
+      if (ageFilter === "unknown" && u.age !== null) return false;
+      if (bucket && (u.age === null || u.age < bucket.min || u.age > bucket.max)) {
+        return false;
+      }
+      if (
+        q &&
+        ![u.name, u.email, u.phone, u.uid]
+          .filter(Boolean)
+          .some((field) => field.toLowerCase().includes(q))
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [users, search, genderFilter, ageFilter]);
 
-  // Reset to first page whenever the search changes.
+  const isFiltered = Boolean(search) || genderFilter !== "all" || ageFilter !== "all";
+
+  // Reset to first page whenever a filter changes.
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [search, genderFilter, ageFilter]);
 
   /* EXPORT CSV (respects the current search filter) */
   const exportCSV = () => {
-    const headers = ["Name", "Email", "Phone", "UID", "Created Time", "Restriction"];
+    const headers = ["Name", "Email", "Phone", "UID", "Gender", "Age", "Created Time", "Restriction"];
 
     const rows = filtered.map((u) => [
       u.name,
       u.email,
       u.phone,
       u.uid,
+      u.gender,
+      u.age ?? "",
       u.createdAt?.toDate ? u.createdAt.toDate().toLocaleString() : "",
       restrictionLabel(u.timeoutUntil),
     ]);
@@ -243,7 +296,7 @@ export default function Page() {
      to unlock (or lock) all premium features. */
   const setVip = async (user: User, makeVip: boolean) => {
     const targetUid = user.uid || user.id;
-    const res = await fetch("/api/admin/users/vip", {
+    const res = await authedFetch("/api/admin/users/vip", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ uid: targetUid, makeVip }),
@@ -323,27 +376,85 @@ export default function Page() {
         )}
       </div>
 
+      {/* GENDER + AGE FILTERS */}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <div className="inline-flex rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
+          {(["all", "Male", "Female"] as GenderFilter[]).map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setGenderFilter(g)}
+              className={`rounded-lg px-3 py-1.5 transition sm:px-4 ${
+                genderFilter === g
+                  ? "bg-[#ff7a59] text-white"
+                  : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
+              }`}
+            >
+              {g === "all" ? "All genders" : g}
+            </button>
+          ))}
+        </div>
+
+        <div className="inline-flex flex-wrap rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
+          {[
+            { key: "all", label: "All ages" },
+            ...AGE_BUCKETS,
+            { key: "unknown", label: "Age not set" },
+          ].map((b) => (
+            <button
+              key={b.key}
+              type="button"
+              onClick={() => setAgeFilter(b.key)}
+              className={`rounded-lg px-3 py-1.5 transition ${
+                ageFilter === b.key
+                  ? "bg-[#ff7a59] text-white"
+                  : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
+              }`}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+
+        {(genderFilter !== "all" || ageFilter !== "all") && (
+          <button
+            type="button"
+            onClick={() => {
+              setGenderFilter("all");
+              setAgeFilter("all");
+            }}
+            className="text-sm text-[#f3ead7]/70 underline hover:text-white"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       {/* TABLE */}
       <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-6">
         <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
           Users ({filtered.length}
-          {search ? ` of ${users.length}` : ""})
+          {isFiltered ? ` of ${users.length}` : ""})
         </h2>
 
         {loading ? (
           <p className="text-[#f3ead7]">Loading...</p>
         ) : filtered.length === 0 ? (
-          <p className="text-[#f3ead7]/70">No users match “{search}”.</p>
+          <p className="text-[#f3ead7]/70">
+            {search ? `No users match “${search}” with these filters.` : "No users match these filters."}
+          </p>
         ) : (
           <>
             <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full min-w-[760px] text-left">
+              <table className="w-full min-w-[900px] text-left">
                 <thead className="bg-[#ece2cb] text-black">
                   <tr>
                     <th className="p-3">Name</th>
                     <th className="p-3">Email</th>
                     <th className="p-3">Phone</th>
                     <th className="p-3">UID</th>
+                    <th className="p-3">Gender</th>
+                    <th className="p-3">Age</th>
                     <th className="p-3">Created</th>
                     <th className="p-3 text-right">Manage</th>
                   </tr>
@@ -378,6 +489,8 @@ export default function Page() {
                         <td className="p-3 text-[#ff7a59]">{u.email}</td>
                         <td className="p-3">{u.phone}</td>
                         <td className="p-3 text-xs">{u.uid}</td>
+                        <td className="p-3">{u.gender || "—"}</td>
+                        <td className="p-3">{u.age ?? "—"}</td>
                         <td className="p-3 text-black/60">
                           {u.createdAt?.toDate
                             ? u.createdAt.toDate().toLocaleDateString()
@@ -494,6 +607,12 @@ export default function Page() {
             </p>
             <p>
               <b>UID:</b> {selected.uid}
+            </p>
+            <p>
+              <b>Gender:</b> {selected.gender || "Not set"}
+            </p>
+            <p>
+              <b>Age:</b> {selected.age ?? "Not set"}
             </p>
             <p>
               <b>Created:</b>{" "}

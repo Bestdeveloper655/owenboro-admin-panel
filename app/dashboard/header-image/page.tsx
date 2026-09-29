@@ -10,13 +10,13 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import {
-  deleteObject,
   getDownloadURL,
   ref,
   uploadBytes,
 } from "firebase/storage";
 
 import { db, storage } from "@/lib/firebaseServices";
+import { deleteStorageFileByUrl } from "@/lib/adminData";
 
 /* TYPES */
 type Category = {
@@ -229,19 +229,7 @@ export default function Page() {
     return await getDownloadURL(storageRef);
   };
 
-  const deleteImageByUrl = async (url?: string) => {
-    if (!url) return;
-
-    try {
-      const decoded = decodeURIComponent(url);
-      const path = decoded.split("/o/")[1]?.split("?")[0];
-      if (path) {
-        await deleteObject(ref(storage, path));
-      }
-    } catch (err) {
-      console.log("Image delete skipped/failed:", err);
-    }
-  };
+  const deleteImageByUrl = (url?: string) => deleteStorageFileByUrl(url);
 
   /* ADD */
   const handleAdd = async () => {

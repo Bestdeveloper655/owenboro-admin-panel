@@ -77,6 +77,11 @@ export default function Page() {
     setForm({ title: "", link: "" });
   };
 
+  /* The app shows exactly one item: the first by `link`, alphabetically. */
+  const liveId = votes
+    .filter((v) => typeof v.link === "string")
+    .reduce<Vote | null>((first, v) => (!first || v.link < first.link ? v : first), null)?.id;
+
   /* DELETE */
   const confirmDelete = async () => {
     if (!deleting) return;
@@ -104,6 +109,10 @@ export default function Page() {
 
         <p className="mt-2 text-lg font-medium text-[#e8dcc7] md:text-xl">
           Submit a link that users can vote for.
+        </p>
+        <p className="mt-1 text-sm text-[#e8dcc7]/70">
+          The app shows one link only: the first alphabetically. Delete the
+          others, or the one marked &ldquo;Live in app&rdquo;, to change it.
         </p>
       </div>
 
@@ -160,6 +169,7 @@ export default function Page() {
             <VoteCard
               key={vote.id}
               {...vote}
+              live={vote.id === liveId}
               onEdit={() => {
                 setEditing(vote);
                 setForm({ title: vote.title, link: vote.link });
@@ -200,18 +210,25 @@ export default function Page() {
 }
 
 /* CARD */
-function VoteCard({ title, link, onEdit, onDelete }: any) {
+function VoteCard({ title, link, live, onEdit, onDelete }: any) {
   return (
     <div className="rounded-xl bg-[#ff7a59] p-5 text-white">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold md:text-base">{title}</span>
+        <span className="flex items-center gap-2 text-sm font-semibold md:text-base">
+          {title}
+          {live && (
+            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase text-[#ff7a59]">
+              Live in app
+            </span>
+          )}
+        </span>
 
         <div className="flex items-center gap-3">
-          <button onClick={onEdit}>
+          <button onClick={onEdit} aria-label="Edit">
             ✏️
           </button>
 
-          <button onClick={onDelete}>
+          <button onClick={onDelete} aria-label="Delete">
             🗑️
           </button>
         </div>

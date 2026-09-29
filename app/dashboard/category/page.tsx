@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   collection,
   getDocs,
@@ -8,15 +9,19 @@ import {
   deleteDoc,
   doc,
   setDoc,
+  serverTimestamp,
 } from "firebase/firestore";
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-} from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 import { db, storage } from "@/lib/firebaseServices";
+import {
+  asOrder,
+  deleteStorageFileByUrl,
+  nextOrder,
+  slugify,
+  sortByOrder,
+  writeSequence,
+} from "@/lib/adminData";
 
 /* GLOBAL IMAGE CACHE */
 const imageCache = new Map<string, string>();
@@ -27,7 +32,7 @@ type Category = {
   name: string;
   slug: string;
   image: string;
-  order?: number;
+  order: number | null;
 };
 
 export default function Page() {
@@ -36,9 +41,7 @@ export default function Page() {
   const [editing, setEditing] = useState<Category | null>(null);
   const [deleting, setDeleting] = useState<Category | null>(null);
 
-  const [dragged, setDragged] = useState<Category | null>(null);
-
-  const [form, setForm] = useState({ name: "", slug: "", order: "" });
+  const [form, setForm] = useState({ name: "", slug: "" });
   const [file, setFile] = useState<File | null>(null);
   const [formError, setFormError] = useState("");
 
@@ -86,7 +89,7 @@ export default function Page() {
         name: x.catagoryName,
         slug: x.slug || "",
         image: x.image || "",
-        order: x.order ?? 999,
+        order: asOrder(x.order),
       };
     });
 
@@ -94,7 +97,7 @@ export default function Page() {
       if (item.image) preloadImage(item.image);
     });
 
-    setCategories(data.sort((a, b) => (a.order ?? 999) - (b.order ?? 999)));
+    setCategories(sortByOrder(data, (c) => c.order));
   };
 
   useEffect(() => {
@@ -108,7 +111,7 @@ export default function Page() {
 
   /* IMAGE UPLOAD */
   const uploadImage = async () => {
-    if (!file) return "";
+    if (!file) return { url: "", path: "" };
 
     const r = ref(storage, `categories/${Date.now()}-${file.name}`);
     await uploadBytes(r, file);
@@ -116,43 +119,11 @@ export default function Page() {
     const url = await getDownloadURL(r);
     preloadImage(url);
 
-    return url;
-  };
-
-  const normalizeOrders = (items: Category[]) =>
-    [...items]
-      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
-      .map((item, index) => ({
-        ...item,
-        order: index + 1,
-      }));
-
-  const insertCategoryAtOrder = (
-    currentCategories: Category[],
-    item: Category,
-    targetOrder: number,
-  ) => {
-    const withoutItem = currentCategories.filter((c) => c.id !== item.id);
-    const normalized = normalizeOrders(withoutItem);
-
-    const insertIndex = Math.min(
-      Math.max(targetOrder - 1, 0),
-      normalized.length,
-    );
-
-    normalized.splice(insertIndex, 0, {
-      ...item,
-      order: targetOrder,
-    });
-
-    return normalized.map((entry, index) => ({
-      ...entry,
-      order: index + 1,
-    }));
+    return { url, path: r.fullPath };
   };
 
   const resetFormState = () => {
-    setForm({ name: "", slug: "", order: "" });
+    setForm({ name: "", slug: "" });
     setFile(null);
     setFormError("");
   };
@@ -172,51 +143,21 @@ export default function Page() {
   const openEditModal = (category: Category) => {
     setAdding(false);
     setEditing(category);
-    setForm({
-      name: category.name,
-      slug: category.slug,
-      order: category.order ? String(category.order) : "",
-    });
+    setForm({ name: category.name, slug: category.slug });
     setFile(null);
     setFormError("");
   };
 
-  const validateAddOrder = (order: number) => {
-    if (!Number.isInteger(order) || order < 1) {
-      return "Display order must be a positive whole number.";
-    }
-
-    if (order > categories.length + 1) {
-      return `Display order must be between 1 and ${categories.length + 1}.`;
-    }
-
-    const existingCategory = categories.find((category) => category.order === order);
-
-    if (existingCategory) {
-      return `Display order ${order} already exists for "${existingCategory.name}". Please choose a different order number.`;
-    }
-
+  const validate = () => {
+    if (!form.name.trim()) return "Category name is required.";
+    if (!slugify(form.slug || form.name)) return "Please enter a slug using letters or numbers.";
+    if (adding && !file) return "Please upload an icon image for the category.";
     return "";
   };
 
-  const validateUpdateOrder = (order: number) => {
-    if (!Number.isInteger(order) || order < 1) {
-      return "Display order must be a positive whole number.";
-    }
-
-    if (order > categories.length) {
-      return `Display order must be between 1 and ${categories.length}.`;
-    }
-
-    return "";
-  };
-
-  /* ADD */
+  /* ADD — new categories go to the end; reorder them in Display Order. */
   const handleAdd = async () => {
-    const desiredOrder =
-      form.order !== "" ? Number(form.order) : categories.length + 1;
-
-    const validationMessage = validateAddOrder(desiredOrder);
+    const validationMessage = validate();
     if (validationMessage) {
       setFormError(validationMessage);
       return;
@@ -226,43 +167,18 @@ export default function Page() {
       setFormError("");
       setSaving(true);
 
-      const imageUrl = await uploadImage();
+      const { url, path } = await uploadImage();
       const newDocRef = doc(collection(db, "Catagories"));
-
-      const newCategory: Category = {
-        id: newDocRef.id,
-        name: form.name,
-        slug: form.slug,
-        image: imageUrl,
-        order: desiredOrder,
-      };
-
-      const reordered = insertCategoryAtOrder(
-        categories,
-        newCategory,
-        desiredOrder,
-      );
-
-      const finalOrder =
-        reordered.find((entry) => entry.id === newCategory.id)?.order ??
-        desiredOrder;
-
-      await Promise.all(
-        reordered
-          .filter((entry) => entry.id !== newCategory.id)
-          .map((entry) =>
-            updateDoc(doc(db, "Catagories", entry.id), {
-              order: entry.order,
-            }),
-          ),
-      );
 
       await setDoc(newDocRef, {
         id: newDocRef.id,
-        catagoryName: form.name,
-        slug: form.slug,
-        image: imageUrl,
-        order: finalOrder,
+        catagoryName: form.name.trim(),
+        slug: slugify(form.slug || form.name),
+        image: url,
+        imagePath: path,
+        order: nextOrder(categories.map((c) => c.order)),
+        recommended: false,
+        createdAt: serverTimestamp(),
       });
 
       await fetchData();
@@ -275,14 +191,11 @@ export default function Page() {
     }
   };
 
-  /* UPDATE */
+  /* UPDATE — position is left alone; it's managed in Display Order. */
   const handleUpdate = async () => {
     if (!editing) return;
 
-    const desiredOrder =
-      form.order !== "" ? Number(form.order) : (editing.order ?? 999);
-
-    const validationMessage = validateUpdateOrder(desiredOrder);
+    const validationMessage = validate();
     if (validationMessage) {
       setFormError(validationMessage);
       return;
@@ -292,48 +205,23 @@ export default function Page() {
       setFormError("");
       setSaving(true);
 
-      let imageUrl = editing.image;
-
+      const imageFields: { image?: string; imagePath?: string } = {};
       if (file) {
-        if (editing.image) {
-          await deleteObject(ref(storage, editing.image));
-        }
-        imageUrl = await uploadImage();
+        const { url, path } = await uploadImage();
+        await deleteStorageFileByUrl(editing.image);
+        imageFields.image = url;
+        imageFields.imagePath = path;
       }
 
-      const updatedCategory: Category = {
-        ...editing,
-        name: form.name,
-        slug: form.slug,
-        image: imageUrl,
-        order: desiredOrder,
-      };
-
-      const reordered = insertCategoryAtOrder(
-        categories,
-        updatedCategory,
-        desiredOrder,
-      );
-
-      const finalOrder =
-        reordered.find((entry) => entry.id === editing.id)?.order ??
-        desiredOrder;
-
-      await Promise.all(
-        reordered
-          .filter((entry) => entry.id !== editing.id)
-          .map((entry) =>
-            updateDoc(doc(db, "Catagories", entry.id), {
-              order: entry.order,
-            }),
-          ),
-      );
-
       await updateDoc(doc(db, "Catagories", editing.id), {
-        catagoryName: form.name,
-        slug: form.slug,
-        image: imageUrl,
-        order: finalOrder,
+        catagoryName: form.name.trim(),
+        slug: slugify(form.slug || form.name),
+        ...imageFields,
+        // Categories created before this round may be missing an order and
+        // would be hidden in the app; give them the next slot.
+        ...(editing.order === null
+          ? { order: nextOrder(categories.map((c) => c.order)) }
+          : {}),
       });
 
       await fetchData();
@@ -351,74 +239,37 @@ export default function Page() {
     if (!deleting) return;
 
     try {
+      setSaving(true);
       await deleteDoc(doc(db, "Catagories", deleting.id));
-
-      if (deleting.image) {
-        await deleteObject(ref(storage, deleting.image));
-      }
+      await deleteStorageFileByUrl(deleting.image);
 
       const remaining = categories.filter((c) => c.id !== deleting.id);
-      const reorderedRemaining = remaining.map((item, index) => ({
-        ...item,
-        order: index + 1,
-      }));
-
-      setCategories(reorderedRemaining);
-
-      await Promise.all(
-        reorderedRemaining.map((item) =>
-          updateDoc(doc(db, "Catagories", item.id), {
-            order: item.order,
-          }),
-        ),
-      );
+      await writeSequence("Catagories", remaining.map((c) => c.id));
 
       setDeleting(null);
+      await fetchData();
     } catch (error) {
       console.error(error);
-    }
-  };
-
-  /* DRAG DROP */
-  const handleDrop = async (target: Category) => {
-    if (!dragged || dragged.id === target.id) return;
-
-    try {
-      const updated = [...categories];
-      const from = updated.findIndex((i) => i.id === dragged.id);
-      const to = updated.findIndex((i) => i.id === target.id);
-
-      if (from === -1 || to === -1) return;
-
-      const [moved] = updated.splice(from, 1);
-      updated.splice(to, 0, moved);
-
-      const reordered = updated.map((item, index) => ({
-        ...item,
-        order: index + 1,
-      }));
-
-      setCategories(reordered);
-      setDragged(null);
-
-      await Promise.all(
-        reordered.map((item) =>
-          updateDoc(doc(db, "Catagories", item.id), {
-            order: item.order,
-          }),
-        ),
-      );
-    } catch (error) {
-      console.error(error);
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
     <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
       <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
-          Categories
-        </h1>
+        <div>
+          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
+            Categories
+          </h1>
+          <p className="mt-1 text-sm text-[#e8dcc7]/70">
+            Change the order categories appear in the app in{" "}
+            <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
+              Display Order
+            </Link>
+            .
+          </p>
+        </div>
 
         <button
           onClick={openAddModal}
@@ -435,7 +286,7 @@ export default function Page() {
               <th className="p-3">Image</th>
               <th className="p-3">Name</th>
               <th className="p-3">Slug</th>
-              <th className="p-3">Order</th>
+              <th className="p-3">Position</th>
               <th className="p-3 text-right min-w-[170px]">Actions</th>
             </tr>
           </thead>
@@ -445,8 +296,7 @@ export default function Page() {
               <CategoryRow
                 key={c.id}
                 c={c}
-                setDragged={setDragged}
-                handleDrop={handleDrop}
+                rank={categories.indexOf(c) + 1}
                 setEditing={openEditModal}
                 setDeleting={setDeleting}
               />
@@ -517,28 +367,23 @@ export default function Page() {
           <Input
             label="Slug"
             value={form.slug}
+            placeholder={slugify(form.name) || "generated from the name"}
             onChange={(v: string) => {
               setForm({ ...form, slug: v });
               setFormError("");
             }}
           />
-          <Input
-            label="Order"
-            value={form.order}
-            onChange={(v: string) => {
-              setForm({ ...form, order: v });
-              setFormError("");
-            }}
-          />
 
-          {editing && !formError && (
+          {adding && (
             <p className="mt-2 text-sm text-[#5f5542]">
-              Changing the display order will automatically shift the other categories.
+              New categories are added at the end. Reorder them in Display Order.
             </p>
           )}
 
+          <label className="mt-4 block font-semibold">Icon image (SVG or PNG)</label>
           <input
             type="file"
+            accept="image/*"
             onChange={(e) => {
               setFile(e.target.files?.[0] || null);
               setFormError("");
@@ -566,13 +411,27 @@ export default function Page() {
       )}
 
       {deleting && (
-        <Modal title="Delete" onClose={() => setDeleting(null)}>
-          <button
-            onClick={confirmDelete}
-            className="bg-red-500 text-white px-4 py-2 rounded"
-          >
-            Confirm Delete
-          </button>
+        <Modal title="Delete category" onClose={() => setDeleting(null)}>
+          <p>
+            Delete <b>{deleting.name}</b>? Its sub categories and listings are
+            not deleted, but they will no longer be reachable from this category
+            in the app.
+          </p>
+          <div className="mt-6 flex justify-end gap-3">
+            <button
+              onClick={() => setDeleting(null)}
+              className="rounded-xl border border-black/15 px-4 py-2"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDelete}
+              disabled={saving}
+              className="rounded-xl bg-red-500 px-4 py-2 text-white disabled:opacity-60"
+            >
+              {saving ? "Deleting…" : "Delete"}
+            </button>
+          </div>
         </Modal>
       )}
     </div>
@@ -582,19 +441,12 @@ export default function Page() {
 /* 🔥 MEMO ROW */
 const CategoryRow = React.memo(function CategoryRow({
   c,
-  setDragged,
-  handleDrop,
+  rank,
   setEditing,
   setDeleting,
 }: any) {
   return (
-    <tr
-      draggable
-      onDragStart={() => setDragged(c)}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={() => handleDrop(c)}
-      className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
-    >
+    <tr className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]">
       <td className="p-3">
         <img
           src={imageCache.get(c.image) || c.image}
@@ -605,7 +457,15 @@ const CategoryRow = React.memo(function CategoryRow({
 
       <td className="p-3 font-semibold">{c.name}</td>
       <td className="p-3">{c.slug}</td>
-      <td className="p-3">{c.order}</td>
+      <td className="p-3">
+        {c.order === null ? (
+          <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+            Hidden in app
+          </span>
+        ) : (
+          rank
+        )}
+      </td>
 
       <td className="p-3 min-w-[170px]">
         <div className="flex justify-end items-center gap-2 whitespace-nowrap">
@@ -643,12 +503,13 @@ function Modal({ children, title, onClose }: any) {
   );
 }
 
-function Input({ label, value, onChange }: any) {
+function Input({ label, value, onChange, placeholder }: any) {
   return (
     <div className="mt-3">
       <label className="font-semibold">{label}</label>
       <input
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="w-full border border-[#ff7a59] rounded-xl p-3 mt-1"
       />

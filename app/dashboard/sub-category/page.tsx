@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   collection,
   getDocs,
@@ -8,14 +9,18 @@ import {
   doc,
   addDoc,
   updateDoc,
+  serverTimestamp,
 } from "firebase/firestore";
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-  deleteObject,
-} from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseServices";
+import {
+  asOrder,
+  deleteStorageFileByUrl,
+  nextOrder,
+  slugify,
+  sortByOrder,
+  writeSequence,
+} from "@/lib/adminData";
 
 /* TYPES */
 type SubCategory = {
@@ -23,13 +28,15 @@ type SubCategory = {
   name: string;
   category: string;
   categoryId: string;
-  order?: number;
+  slug: string;
+  order: number | null;
   image?: string;
 };
 
 type Category = {
   id: string;
   name: string;
+  order: number | null;
 };
 
 export default function Page() {
@@ -39,15 +46,14 @@ export default function Page() {
 
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<SubCategory | null>(null);
-  const [dragged, setDragged] = useState<SubCategory | null>(null);
 
   const [btnLoading, setBtnLoading] = useState(false);
   const [formError, setFormError] = useState("");
 
   const [form, setForm] = useState({
     name: "",
+    slug: "",
     categoryId: "",
-    order: "",
   });
 
   const [file, setFile] = useState<File | null>(null);
@@ -60,10 +66,15 @@ export default function Page() {
     const catSnap = await getDocs(collection(db, "Catagories"));
     const subSnap = await getDocs(collection(db, "SubCatagories"));
 
-    const cats = catSnap.docs.map((d) => ({
-      id: d.id,
-      name: d.data().catagoryName,
-    }));
+    const cats = sortByOrder(
+      catSnap.docs.map((d) => ({
+        id: d.id,
+        name: d.data().catagoryName,
+        order: asOrder(d.data().order),
+      })),
+      (c) => c.order,
+    );
+    const catIndex = new Map(cats.map((c, i) => [c.id, i]));
 
     const subs = subSnap.docs.map((d) => {
       const data = d.data();
@@ -74,14 +85,20 @@ export default function Page() {
         id: d.id,
         name: data.name || "Untitled",
         category: cat?.name || "",
-        categoryId: refId,
-        order: data.order ?? 999,
+        categoryId: refId || "",
+        slug: data.slug || "",
+        order: asOrder(data.order),
         image: data.image || "",
       };
     });
 
+    // Grouped by category (in category order), then by position inside it.
     setCategories(cats);
-    setSubCategories(subs.sort((a, b) => (a.order ?? 999) - (b.order ?? 999)));
+    setSubCategories(
+      sortByOrder(subs, (s) => s.order).sort(
+        (a, b) => (catIndex.get(a.categoryId) ?? 1e9) - (catIndex.get(b.categoryId) ?? 1e9),
+      ),
+    );
     setLoading(false);
   };
 
@@ -108,84 +125,20 @@ export default function Page() {
     };
   }, [file, previewUrl]);
 
-  const normalizeOrders = (items: SubCategory[]) =>
-    [...items]
-      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
-      .map((item, index) => ({
-        ...item,
-        order: index + 1,
-      }));
-
-  const insertSubCategoryAtOrder = (
-    currentSubCategories: SubCategory[],
-    item: SubCategory,
-    targetOrder: number,
-  ) => {
-    const withoutItem = currentSubCategories.filter((s) => s.id !== item.id);
-    const normalized = normalizeOrders(withoutItem);
-
-    const insertIndex = Math.min(
-      Math.max(targetOrder - 1, 0),
-      normalized.length,
+  /* `order` is the position among the sub categories of one category. */
+  const siblingsOf = (categoryId: string, excludeId?: string) =>
+    sortByOrder(
+      subCategories.filter((s) => s.categoryId === categoryId && s.id !== excludeId),
+      (s) => s.order,
     );
-
-    normalized.splice(insertIndex, 0, {
-      ...item,
-      order: targetOrder,
-    });
-
-    return normalized.map((entry, index) => ({
-      ...entry,
-      order: index + 1,
-    }));
-  };
-
-  const validateAddOrder = (order: number) => {
-    if (!Number.isInteger(order) || order < 1) {
-      return "Display order must be a positive whole number.";
-    }
-
-    if (order > subCategories.length + 1) {
-      return `Display order must be between 1 and ${subCategories.length + 1}.`;
-    }
-
-    const existing = subCategories.find((item) => item.order === order);
-    if (existing) {
-      return `Display order ${order} is already assigned to "${existing.name}". Please choose a different order number.`;
-    }
-
-    return "";
-  };
-
-  const validateUpdateOrder = (order: number) => {
-    if (!Number.isInteger(order) || order < 1) {
-      return "Display order must be a positive whole number.";
-    }
-
-    if (order > subCategories.length) {
-      return `Display order must be between 1 and ${subCategories.length}.`;
-    }
-
-    return "";
-  };
 
   const validateForm = (isAdding: boolean) => {
     if (!form.name.trim()) return "Sub category name is required.";
     if (!form.categoryId) return "Please select a category.";
-    if (!form.order) return "Display order is required.";
-
-    const orderNum = Number(form.order);
-
-    const orderError = isAdding
-      ? validateAddOrder(orderNum)
-      : validateUpdateOrder(orderNum);
-
-    if (orderError) return orderError;
-
+    if (!slugify(form.slug || form.name)) return "Please enter a slug using letters or numbers.";
     if (isAdding && !file) {
       return "Please upload an image for the sub category.";
     }
-
     return "";
   };
 
@@ -197,20 +150,8 @@ export default function Page() {
     return await getDownloadURL(storageRef);
   };
 
-  const safelyDeleteImageByUrl = async (url?: string) => {
-    if (!url) return;
-    try {
-      const decoded = decodeURIComponent(url);
-      const path = decoded.split("/o/")[1]?.split("?")[0];
-      if (!path) return;
-      await deleteObject(ref(storage, path));
-    } catch (error) {
-      console.error("Image delete skipped/failed:", error);
-    }
-  };
-
   const resetFormState = () => {
-    setForm({ name: "", categoryId: "", order: "" });
+    setForm({ name: "", slug: "", categoryId: "" });
     setFile(null);
     setFormError("");
   };
@@ -221,7 +162,7 @@ export default function Page() {
     resetFormState();
   };
 
-  /* ADD */
+  /* ADD — appended to the end of its category; reorder in Display Order. */
   const handleAdd = async () => {
     const validationError = validateForm(true);
     if (validationError) {
@@ -229,51 +170,23 @@ export default function Page() {
       return;
     }
 
-    const orderNum = Number(form.order);
-
     setBtnLoading(true);
 
     try {
       setFormError("");
 
-      const categoryRef = doc(db, "Catagories", form.categoryId);
       const imageUrl = await uploadImage();
 
-      const newDocRef = await addDoc(collection(db, "SubCatagories"), {
-        name: form.name,
-        catagoriesRef: categoryRef,
-        createdAt: new Date(),
-        order: orderNum,
+      await addDoc(collection(db, "SubCatagories"), {
+        name: form.name.trim(),
+        slug: slugify(form.slug || form.name),
+        catagoriesRef: doc(db, "Catagories", form.categoryId),
+        order: nextOrder(siblingsOf(form.categoryId).map((s) => s.order)),
         image: imageUrl,
+        createdAt: serverTimestamp(),
       });
 
-      const cat = categories.find((c) => c.id === form.categoryId);
-
-      const newItem: SubCategory = {
-        id: newDocRef.id,
-        name: form.name,
-        category: cat?.name || "",
-        categoryId: form.categoryId,
-        order: orderNum,
-        image: imageUrl,
-      };
-
-      const reordered = insertSubCategoryAtOrder(
-        subCategories,
-        newItem,
-        orderNum,
-      );
-
-      setSubCategories(reordered);
-
-      await Promise.all(
-        reordered.map((item) =>
-          updateDoc(doc(db, "SubCatagories", item.id), {
-            order: item.order,
-          }),
-        ),
-      );
-
+      await fetchData();
       closeModal();
     } catch (error) {
       console.error(error);
@@ -283,7 +196,8 @@ export default function Page() {
     }
   };
 
-  /* UPDATE */
+  /* UPDATE — moving to another category appends it there and closes the gap
+   * it leaves behind. */
   const handleUpdate = async () => {
     if (!editing) return;
 
@@ -293,55 +207,39 @@ export default function Page() {
       return;
     }
 
-    const orderNum = Number(form.order);
-
     setBtnLoading(true);
 
     try {
       setFormError("");
 
-      const categoryRef = doc(db, "Catagories", form.categoryId);
       const imageUrl = await uploadImage();
-      const cat = categories.find((c) => c.id === form.categoryId);
+      const movedCategory = editing.categoryId !== form.categoryId;
 
-      const updatedItem: SubCategory = {
-        ...editing,
-        name: form.name,
-        category: cat?.name || "",
-        categoryId: form.categoryId,
-        order: orderNum,
-        image: imageUrl,
-      };
-
-      const reordered = insertSubCategoryAtOrder(
-        subCategories,
-        updatedItem,
-        orderNum,
-      );
-
-      setSubCategories(reordered);
-
-      await Promise.all(
-        reordered
-          .filter((item) => item.id !== editing.id)
-          .map((item) =>
-            updateDoc(doc(db, "SubCatagories", item.id), {
-              order: item.order,
-            }),
-          ),
-      );
-
-      if (editing.image && file && editing.image !== imageUrl) {
-        await safelyDeleteImageByUrl(editing.image);
+      let order = editing.order;
+      if (movedCategory || order === null) {
+        order = nextOrder(siblingsOf(form.categoryId, editing.id).map((s) => s.order));
       }
 
       await updateDoc(doc(db, "SubCatagories", editing.id), {
-        name: form.name,
-        catagoriesRef: categoryRef,
-        order: orderNum,
+        name: form.name.trim(),
+        slug: slugify(form.slug || form.name),
+        catagoriesRef: doc(db, "Catagories", form.categoryId),
+        order,
         image: imageUrl,
       });
 
+      if (editing.image && file && editing.image !== imageUrl) {
+        await deleteStorageFileByUrl(editing.image);
+      }
+
+      if (movedCategory && editing.categoryId) {
+        await writeSequence(
+          "SubCatagories",
+          siblingsOf(editing.categoryId, editing.id).map((s) => s.id),
+        );
+      }
+
+      await fetchData();
       closeModal();
     } catch (error) {
       console.error(error);
@@ -356,30 +254,40 @@ export default function Page() {
     const itemToDelete = subCategories.find((item) => item.id === id);
     if (!itemToDelete) return;
 
-    if (!confirm("Delete this sub category?")) return;
+    if (
+      !confirm(
+        `Delete "${itemToDelete.name}"? Its listings are not deleted, but they will no longer be reachable from this sub category in the app.`,
+      )
+    )
+      return;
 
-    await deleteDoc(doc(db, "SubCatagories", id));
-
-    if (itemToDelete.image) {
-      await safelyDeleteImageByUrl(itemToDelete.image);
+    try {
+      await deleteDoc(doc(db, "SubCatagories", id));
+      await deleteStorageFileByUrl(itemToDelete.image);
+      if (itemToDelete.categoryId) {
+        await writeSequence(
+          "SubCatagories",
+          siblingsOf(itemToDelete.categoryId, id).map((s) => s.id),
+        );
+      }
+      await fetchData();
+    } catch (error) {
+      console.error(error);
+      alert("Failed to delete the sub category.");
     }
-
-    const remaining = subCategories.filter((item) => item.id !== id);
-    const reordered = remaining.map((item, index) => ({
-      ...item,
-      order: index + 1,
-    }));
-
-    setSubCategories(reordered);
-
-    await Promise.all(
-      reordered.map((item) =>
-        updateDoc(doc(db, "SubCatagories", item.id), {
-          order: item.order,
-        }),
-      ),
-    );
   };
+
+  /* Rank within the parent category (list is already grouped and sorted). */
+  const rankById = useMemo(() => {
+    const seen = new Map<string, number>();
+    const ranks = new Map<string, number>();
+    subCategories.forEach((s) => {
+      const n = (seen.get(s.categoryId) ?? 0) + 1;
+      seen.set(s.categoryId, n);
+      ranks.set(s.id, n);
+    });
+    return ranks;
+  }, [subCategories]);
 
   const paginatedData = subCategories.slice(
     (page - 1) * perPage,
@@ -389,9 +297,18 @@ export default function Page() {
   return (
     <div className="px-2 pt-4 pb-8 sm:px-4 sm:pt-6 sm:pb-10 md:px-8">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
-          Sub Categories
-        </h1>
+        <div>
+          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
+            Sub Categories
+          </h1>
+          <p className="mt-1 text-sm text-[#e8dcc7]/70">
+            Change the order sub categories appear in the app in{" "}
+            <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
+              Display Order
+            </Link>
+            .
+          </p>
+        </div>
 
         <button
           onClick={() => {
@@ -417,7 +334,7 @@ export default function Page() {
                     <th className="p-3">Image</th>
                     <th className="p-3">Name</th>
                     <th className="p-3">Category</th>
-                    <th className="p-3">Order</th>
+                    <th className="p-3">Position</th>
                     <th className="p-3 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -426,34 +343,6 @@ export default function Page() {
                   {paginatedData.map((item) => (
                     <tr
                       key={item.id}
-                      draggable
-                      onDragStart={() => setDragged(item)}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={async () => {
-                        if (!dragged || dragged.id === item.id) return;
-
-                        const updated = [...subCategories];
-                        const from = updated.findIndex((i) => i.id === dragged.id);
-                        const to = updated.findIndex((i) => i.id === item.id);
-
-                        const [moved] = updated.splice(from, 1);
-                        updated.splice(to, 0, moved);
-
-                        const reordered = updated.map((it, index) => ({
-                          ...it,
-                          order: index + 1,
-                        }));
-
-                        setSubCategories(reordered);
-
-                        await Promise.all(
-                          reordered.map((it) =>
-                            updateDoc(doc(db, "SubCatagories", it.id), {
-                              order: it.order,
-                            }),
-                          ),
-                        );
-                      }}
                       className="border-b border-white/10 bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
                     >
                       <td className="p-3">
@@ -472,7 +361,15 @@ export default function Page() {
 
                       <td className="p-3 font-semibold">{item.name}</td>
                       <td className="p-3 text-black/60">{item.category}</td>
-                      <td className="p-3">{item.order}</td>
+                      <td className="p-3">
+                        {item.order === null ? (
+                          <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                            Hidden in app
+                          </span>
+                        ) : (
+                          rankById.get(item.id)
+                        )}
+                      </td>
 
                       <td className="p-3">
                         <div className="flex justify-end gap-2">
@@ -484,8 +381,8 @@ export default function Page() {
                               setFormError("");
                               setForm({
                                 name: item.name,
+                                slug: item.slug,
                                 categoryId: item.categoryId,
-                                order: String(item.order || ""),
                               });
                             }}
                             className="rounded-lg bg-[#ff7a59] px-3 py-1 text-xs text-white"
@@ -546,19 +443,20 @@ export default function Page() {
           </div>
 
           <Input
-            label="Order"
-            value={form.order}
+            label="Slug"
+            value={form.slug}
+            placeholder={slugify(form.name) || "generated from the name"}
             onChange={(v: string) => {
-              setForm({ ...form, order: v });
+              setForm({ ...form, slug: v });
               setFormError("");
             }}
           />
 
-          {editing && !formError && (
-            <p className="mt-2 text-sm text-[#5f5542]">
-              Changing the display order will automatically shift the other sub categories.
-            </p>
-          )}
+          <p className="mt-2 text-sm text-[#5f5542]">
+            {adding
+              ? "New sub categories are added at the end of their category. Reorder them in Display Order."
+              : "Moving to another category places it at the end of that category."}
+          </p>
 
           <div className="mt-4">
             <label className="text-black font-semibold">Image</label>
@@ -668,12 +566,13 @@ function Pagination({ total, page, setPage }: any) {
   );
 }
 
-function Input({ label, value, onChange }: any) {
+function Input({ label, value, onChange, placeholder }: any) {
   return (
     <div className="mt-3">
       <label className="text-black font-semibold">{label}</label>
       <input
         value={value}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
         className="mt-1 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black"
       />
