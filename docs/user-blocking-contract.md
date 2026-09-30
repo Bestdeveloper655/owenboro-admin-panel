@@ -60,6 +60,7 @@ re-enables the Auth user, then sets `status: 'restoring'`.
 | `restoredCount` | int | function | Items restored on unblock |
 | `error` | String | function | Set with `status: 'failed'` |
 | `updatedAt` | Timestamp | both | |
+| `leaseId`, `leaseUntil`, `pass` | — | function only | Stop two runs overlapping and let a long run hand over. The panel writes the block doc with **merge**, so these survive a retry. |
 
 State machine:
 
@@ -123,7 +124,7 @@ path already exists, for example because the username was taken while the user
 was blocked, keep the existing doc and record the conflict in `error`, without
 failing the whole restore.
 
-### 1.5 Purge (scheduled, daily)
+### 1.5 Purge (scheduled, hourly)
 
 For `user_blocks` with `status == 'blocked'` and `purgeAfter < now`:
 
@@ -144,20 +145,36 @@ For `user_blocks` with `status == 'blocked'` and `purgeAfter < now`:
 
 ## 2. Block from a group
 
-### 2.1 What the panel writes (client SDK, as staff; the existing rules allow it)
+### 2.1 What the panel writes (client SDK, as staff)
+
+Member docs are readable by every app user, so they carry **only** the status.
+The reason and who blocked go in a staff-only doc.
 
 Block, using `setDoc` with merge, so a non-member can also be blocked
 pre-emptively:
 
 ```
-Groups/{gid}/members/{uid} ← { userId: uid, status: 'blocked', blockedAt: serverTimestamp(),
-                               blockedBy: <staff uid>, blockReason: <string> }
+Groups/{gid}/members/{uid}       ← { userId: uid, status: 'blocked', blockedAt: serverTimestamp() }   (merge)
+Groups/{gid}/member_blocks/{uid} ← { uid, name, reason, blockedAt: serverTimestamp(), blockedBy: <staff uid> }
 ```
 
 Unblock:
 
 ```
-Groups/{gid}/members/{uid} ← { status: 'removed', unblockedAt: serverTimestamp(), unblockedBy: <staff uid> }
+Groups/{gid}/members/{uid}       ← { status: 'removed', unblockedAt: serverTimestamp(),
+                                     blockReason: delete, blockedBy: delete }   (clears the older public fields)
+Groups/{gid}/member_blocks/{uid} ← deleted
+```
+
+To retry a failed group block, unblock and block again. The function keeps a
+`blockPass` counter on the member doc, which the panel doesn't write.
+
+Rule for the staff-only doc:
+
+```
+match /Groups/{gid}/member_blocks/{uid} {
+  allow read, write: if isModerator();
+}
 ```
 
 After an unblock the user is not a member, but can join again.

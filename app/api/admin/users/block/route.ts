@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
       }
 
       const now = Timestamp.now();
+      // merge: the Cloud Function keeps its own lease fields (leaseId,
+      // leaseUntil, pass) on this doc; a retry must not clear them.
       await blockRef.set({
         uid,
         status: "blocking",
@@ -87,7 +89,7 @@ export async function POST(req: NextRequest) {
         archivedCount: existing?.status === "failed" ? existing.archivedCount ?? 0 : 0,
         error: "",
         updatedAt: FieldValue.serverTimestamp(),
-      });
+      }, { merge: true });
 
       if (authUser) {
         await adminSdk.auth().updateUser(uid, { disabled: true });
