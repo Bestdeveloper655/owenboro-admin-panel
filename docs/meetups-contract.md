@@ -23,6 +23,12 @@ Confirmed product decisions (client, 2026-09-30):
   joining additionally require `is_verified == true`.
 - Last spot: only one of two simultaneous joins succeeds.
 - Notifications are created server-side.
+- The creator is part of the meetup but does **not** take a spot. `spots: 3`
+  means the creator plus three others.
+- The creator can unblock someone they blocked.
+- Pausing messaging in a group also pauses its meetup chats. Staff can also
+  pause a single meetup's chat from the admin panel, typically for meetups
+  that ended months ago. Paused chats stay readable.
 
 ## 1. Collections
 
@@ -49,19 +55,20 @@ Groups/{groupId}/meetups/{meetupId}/rejoinRequests/{uid}
 | `creatorName` | String | creator (create only) | From `Users/{uid}.display_name` |
 | `creatorPhoto` | String URL | creator (create only) | From `Users/{uid}.photo_url`, `""` if none |
 | `groupId` | String | creator (create only) | Redundant with the path; used by collection-group queries (admin panel) |
-| `joinedCount` | int | **server only** | Number of joined members, creator excluded (see §7 Q1) |
+| `joinedCount` | int | **server only** | Number of joined members. The creator is never counted. |
 | `memberUids` | String[] | **server only** | Joined members, creator excluded. Used for "meetups I joined" and full-meetup visibility |
 | `kickedUids` | String[] | **server only** | Kicked, may request to rejoin |
 | `blockedUids` | String[] | **server only** | Blocked; can't see, join or request |
 | `likeCount` | int | **server only** | List sort key |
 | `dislikeCount` | int | **server only** | Admin panel only |
 | `cardMessageId` | String | **server only** | Id of the card in `Groups/{gid}/messages` |
+| `chatPaused` | bool | **staff only** (admin panel) | `true` blocks new messages in this meetup's chat; history stays readable |
 | `createdAt` | Timestamp | creator (create only) | `serverTimestamp()` |
 | `updatedAt` | Timestamp | creator / server | `serverTimestamp()` |
 
 On create, the client writes `joinedCount: 0`, `memberUids: []`, `kickedUids: []`,
-`blockedUids: []`, `likeCount: 0`, `dislikeCount: 0` and `cardMessageId: ""`
-(the rules check these values). The server fills in `cardMessageId`.
+`blockedUids: []`, `likeCount: 0`, `dislikeCount: 0`, `cardMessageId: ""` and
+`chatPaused: false` (the rules check these values). The server fills in `cardMessageId`.
 
 Derived states, computed in the app:
 
@@ -176,7 +183,8 @@ match /meetups/{mid} {
     && request.resource.data.kickedUids.size() == 0
     && request.resource.data.blockedUids.size() == 0
     && request.resource.data.likeCount == 0
-    && request.resource.data.dislikeCount == 0;
+    && request.resource.data.dislikeCount == 0
+    && request.resource.data.chatPaused == false;
 
   // The creator edits only the user-facing fields. Server-owned fields are
   // changed through callables and triggers, which use the Admin SDK.
@@ -184,6 +192,12 @@ match /meetups/{mid} {
     && request.resource.data.diff(resource.data).affectedKeys()
          .hasOnly(['title', 'description', 'startAt', 'spots', 'updatedAt'])
     && validMeetupFields(request.resource.data);
+
+  // Staff pause or resume a single meetup's chat from the admin panel.
+  allow update: if isModerator()
+    && request.resource.data.diff(resource.data).affectedKeys()
+         .hasOnly(['chatPaused', 'updatedAt'])
+    && request.resource.data.chatPaused is bool;
 
   allow delete: if isModerator()
     || (isSignedIn() && resource.data.creatorUid == request.auth.uid);
@@ -200,7 +214,10 @@ match /meetups/{mid} {
       && !(request.auth.uid in meetup(document, mid).blockedUids)
       && request.resource.data.userId == request.auth.uid
       && request.resource.data.get('type', 'text') != 'system'
-      && (!messagingPaused() || isModerator())
+      && ((!messagingPaused()
+           && !groupMsgPaused(document)
+           && meetup(document, mid).get('chatPaused', false) != true)
+          || isModerator())
       && !isTimedOut(request.auth.uid);
     allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
     allow delete: if isModerator() || (isSignedIn() && resource.data.userId == request.auth.uid);
@@ -313,17 +330,16 @@ Full meetups stay visible to the creator (`creatorUid`), to members
 (`memberUids`) and to staff, so the app hides a meetup only when it's full and
 the viewer is none of those.
 
-## 7. Open questions
+## 7. Resolved questions
 
-1. **Does the creator take a spot?** This draft says **no**: `spots` is how
-   many other people can join, so `spots: 1` means "me plus one friend". If the
-   client means the total head count including the creator, `joinedCount`
-   starts at 1 and the full check stays the same.
-2. **Unblock:** the requirements don't mention it. The draft includes
-   `unblockFromMeetup` so a creator can undo a mistaken block. Drop it if unwanted.
-3. **Existing group gates in the meetup chat:** the draft applies the global
-   messaging pause and user timeouts. Should the group-level
-   `messaging_paused` also silence meetup chats?
+1. **The creator doesn't take a spot.** They are part of the meetup, with chat
+   and management access, but `joinedCount` and `spots` count only other people.
+2. **Unblock is kept.** `unblockFromMeetup` lets the creator undo a block.
+3. **Chat pauses:** the global pause (`app_config/mobile.messaging_paused`) and
+   the group pause (`Groups/{gid}.messaging_paused`) both silence meetup chats.
+   Staff can also set `chatPaused` on a single meetup. Paused chats remain
+   readable, and the app should show "This chat is closed" in place of the
+   input box.
 
 ## 8. Build order
 
@@ -334,5 +350,7 @@ the viewer is none of those.
 4. Invites.
 5. Notifications.
 
-The admin panel "Meetups" screen (view by group, members, chat, both counts,
-delete) is built in parallel once §1 is agreed.
+The admin panel "Meetups" screen is built in parallel once §1 is agreed. It
+covers: view by group, members, chat, both vote counts, delete a meetup, delete
+chat messages, pause or resume a meetup's chat, and a bulk "pause chats of
+meetups that ended more than 90 days ago" action.
