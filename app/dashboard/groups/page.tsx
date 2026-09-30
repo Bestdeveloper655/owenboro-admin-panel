@@ -21,7 +21,7 @@ import {
   deleteObject,
 } from "firebase/storage";
 import { serverTimestamp } from "firebase/firestore";
-import { db, storage } from "@/lib/firebaseServices";
+import { auth, db, storage } from "@/lib/firebaseServices";
 
 /**
  * This user is automatically added as an admin member to every group the
@@ -90,7 +90,11 @@ type Member = {
   name: string;
   email: string;
   joinedAt?: any;
-  status: "active" | "removed";
+  status: "active" | "removed" | "blocked";
+  /* Group-block progress written by the Cloud Function
+   * (docs/user-blocking-contract.md §2). */
+  blockState?: string;
+  blockReason?: string;
 };
 
 type Listing = { id: string; name: string; image: string };
@@ -233,9 +237,11 @@ export default function Page() {
           email: x.email || "",
           joinedAt: x.joinedAt || null,
           status: x.status || "active",
+          blockState: x.blockState || "",
+          blockReason: x.blockReason || "",
         };
       });
-      setMembers(data.filter((m) => m.status === "active"));
+      setMembers(data.filter((m) => m.status === "active" || m.status === "blocked"));
     } catch (err) {
       console.error("Error fetching members:", err);
       setError("Failed to fetch members");
@@ -413,6 +419,63 @@ export default function Page() {
       setError("Failed to delete group");
     } finally {
       setDeleteLoading(false);
+    }
+  };
+
+  /* BLOCK FROM GROUP — the member can't rejoin, and a Cloud Function hides
+   * their messages, poll votes and meetups in this group. Unblock restores
+   * them and lets the person join again. */
+  const blockMember = async (m: Member) => {
+    if (!viewingMembers) return;
+    const reason = window.prompt(
+      `Block ${m.name || "this member"} from ${viewingMembers.name}?\n\nThey'll be removed, can't rejoin, and all their messages and poll votes in this group will be hidden. Meetups they host here are cancelled.\n\nReason (optional, staff only):`,
+      "",
+    );
+    if (reason === null) return;
+    try {
+      await setDoc(
+        doc(db, "Groups", viewingMembers.id, "members", m.id),
+        {
+          userId: m.userId || m.id,
+          status: "blocked",
+          blockedAt: serverTimestamp(),
+          blockedBy: auth.currentUser?.uid ?? "",
+          blockReason: reason.trim().slice(0, 500),
+        },
+        { merge: true }
+      );
+      await fetchMembers(viewingMembers.id);
+      setGroups((prev) =>
+        prev.map((g) =>
+          g.id === viewingMembers.id && m.status === "active"
+            ? { ...g, memberCount: Math.max(0, (g.memberCount || 0) - 1) }
+            : g
+        )
+      );
+    } catch (err) {
+      console.error("Error blocking member:", err);
+      setError("Failed to block member");
+    }
+  };
+
+  const unblockMember = async (m: Member) => {
+    if (!viewingMembers) return;
+    if (
+      !window.confirm(
+        `Unblock ${m.name || "this member"}? Their hidden messages and votes in ${viewingMembers.name} are restored, and they can join again.`
+      )
+    )
+      return;
+    try {
+      await updateDoc(doc(db, "Groups", viewingMembers.id, "members", m.id), {
+        status: "removed",
+        unblockedAt: serverTimestamp(),
+        unblockedBy: auth.currentUser?.uid ?? "",
+      });
+      setMembers((prev) => prev.filter((x) => x.id !== m.id));
+    } catch (err) {
+      console.error("Error unblocking member:", err);
+      setError("Failed to unblock member");
     }
   };
 
@@ -876,7 +939,7 @@ export default function Page() {
           {members.length === 0 ? (
             <p className="text-black text-center py-6">No members yet</p>
           ) : (
-            <div className="max-h-96 overflow-y-auto">
+            <div className="max-h-[28rem] overflow-y-auto">
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-b bg-[#efe5cf]">
@@ -887,27 +950,74 @@ export default function Page() {
                   </tr>
                 </thead>
                 <tbody>
-                  {members.map((m) => (
-                    <tr key={m.id} className="border-b">
-                      <td className="p-2 font-semibold">{m.name}</td>
-                      <td className="p-2 text-xs">{m.email}</td>
-                      <td className="p-2 text-xs">
-                        {m.joinedAt?.toDate
-                          ? m.joinedAt.toDate().toLocaleDateString()
-                          : "-"}
-                      </td>
-                      <td className="p-2 text-right">
-                        <button
-                          onClick={() => removeMember(m.id)}
-                          className="text-red-600 text-xs hover:underline"
-                        >
-                          Remove
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {members
+                    .filter((m) => m.status === "active")
+                    .map((m) => (
+                      <tr key={m.id} className="border-b">
+                        <td className="p-2 font-semibold">{m.name}</td>
+                        <td className="p-2 text-xs">{m.email}</td>
+                        <td className="p-2 text-xs">
+                          {m.joinedAt?.toDate
+                            ? m.joinedAt.toDate().toLocaleDateString()
+                            : "-"}
+                        </td>
+                        <td className="p-2 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => removeMember(m.id)}
+                            className="text-red-600 text-xs hover:underline"
+                          >
+                            Remove
+                          </button>
+                          <button
+                            onClick={() => blockMember(m)}
+                            className="ml-3 text-red-800 text-xs font-semibold hover:underline"
+                          >
+                            Block
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
+
+              {members.some((m) => m.status === "blocked") && (
+                <>
+                  <h4 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wide text-black/60">
+                    Blocked from this group
+                  </h4>
+                  <table className="w-full text-left text-sm">
+                    <tbody>
+                      {members
+                        .filter((m) => m.status === "blocked")
+                        .map((m) => (
+                          <tr key={m.id} className="border-b">
+                            <td className="p-2 font-semibold">{m.name || m.userId}</td>
+                            <td className="p-2 text-xs text-black/60">
+                              {m.blockReason || "No reason given"}
+                            </td>
+                            <td className="p-2 text-xs">
+                              {m.blockState === "archived"
+                                ? "Content hidden"
+                                : m.blockState === "failed"
+                                  ? "Hiding failed"
+                                  : m.blockState
+                                    ? "Hiding content…"
+                                    : "Waiting…"}
+                            </td>
+                            <td className="p-2 text-right">
+                              <button
+                                onClick={() => unblockMember(m)}
+                                className="text-green-800 text-xs font-semibold hover:underline"
+                              >
+                                Unblock
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
             </div>
           )}
         </Modal>

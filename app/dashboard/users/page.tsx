@@ -12,6 +12,7 @@ import {
 import { db } from "@/lib/firebaseServices";
 import { notifyModeration } from "@/lib/moderationNotify";
 import { authedFetch } from "@/lib/authedFetch";
+import { setAppBlock } from "@/lib/userBlocks";
 
 type User = {
   id: string;
@@ -31,6 +32,7 @@ type User = {
   promoOptIn: boolean | null;
   age: number | null;
   gender: string;
+  role: string;
 };
 
 /* Same buckets the mobile app uses for its auto-groups, so counts match. */
@@ -147,6 +149,7 @@ export default function Page() {
                 : null,
           age: resolveAge(x.date_of_birth, x.age),
           gender: x.gender === "Male" || x.gender === "Female" ? x.gender : "",
+          role: typeof x.role === "string" ? x.role : "user",
         };
       });
 
@@ -630,6 +633,15 @@ export default function Page() {
             user={selected}
             onApply={(opt) => applyRestriction(selected, opt)}
           />
+
+          {/* BLOCK FROM APP */}
+          <AppBlockPanel
+            user={selected}
+            onBlocked={() => {
+              setUsers((prev) => prev.filter((u) => u.id !== selected.id));
+              setSelected(null);
+            }}
+          />
         </Modal>
       )}
 
@@ -874,6 +886,61 @@ function VipPanel({
 }
 
 /* VERIFIED BADGE — blue check shown next to verified users */
+/* Full app block (docs/user-blocking-contract.md §1): disables the login and
+ * hides everything the user created. Reversible from Blocked Users. */
+function AppBlockPanel({ user, onBlocked }: { user: User; onBlocked: () => void }) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  if (user.role === "admin" || user.role === "moderator") return null;
+
+  const block = async () => {
+    if (
+      !window.confirm(
+        `Block ${user.name} from the app?\n\nThey'll be signed out and can't log back in, and their profile, messages, posts and everything else they created will be hidden from everyone. You can undo this from Blocked Users.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      await setAppBlock(user.uid || user.id, true, { reason, source: "users" });
+      onBlocked();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 rounded-2xl border border-red-300 bg-red-50/60 p-4">
+      <h3 className="font-bold text-red-800">Block from app</h3>
+      <p className="mt-1 text-sm text-black/70">
+        Signs them out everywhere, disables their login, and hides their profile
+        and everything they&rsquo;ve posted, as if the account never existed.
+        Use the restriction above if you only want to stop them messaging.
+      </p>
+      <textarea
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason (only staff can see this)"
+        maxLength={500}
+        className="mt-3 h-20 w-full rounded-xl border border-red-300 bg-white px-3 py-2 text-sm text-black"
+      />
+      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
+      <button
+        onClick={block}
+        disabled={busy}
+        className="mt-3 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+      >
+        {busy ? "Blocking…" : "Block from app"}
+      </button>
+    </div>
+  );
+}
+
 function VerifiedBadge() {
   return (
     <svg
