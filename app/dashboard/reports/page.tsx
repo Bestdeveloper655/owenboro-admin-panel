@@ -17,6 +17,12 @@ import {
 import { httpsCallable } from "firebase/functions";
 import { auth, db, functions } from "@/lib/firebaseServices";
 import { notifyModeration } from "@/lib/moderationNotify";
+import {
+  ACTIVE_BLOCK_STATUSES,
+  APP_BLOCK_LABEL,
+  setAppBlock,
+  type AppBlockStatus,
+} from "@/lib/userBlocks";
 
 type ReportStatus = "pending" | "reviewed" | "dismissed" | "action_taken";
 type ReportSource = "direct_message" | "group_chat" | "profile" | string;
@@ -50,6 +56,8 @@ type ReportedProfile = {
   bio: string;
   email: string;
   isBanned: boolean;
+  /* App block state from user_blocks/{uid}; null when never blocked. */
+  blockStatus: AppBlockStatus | null;
   timeoutUntil: Date | null;
   reportCount: number;
 };
@@ -275,8 +283,17 @@ export default function Page() {
         );
         const reportCount = countSnap.data().count;
 
-        const snap = await getDoc(doc(db, "Users", selected.reportedUserId));
+        const [snap, blockSnap] = await Promise.all([
+          getDoc(doc(db, "Users", selected.reportedUserId)),
+          // Optional: before the user_blocks rules are deployed this read is
+          // denied; the profile must still load.
+          getDoc(doc(db, "user_blocks", selected.reportedUserId)).catch(() => null),
+        ]);
         if (cancelled) return;
+        const blockStatus = blockSnap?.exists()
+          ? ((blockSnap.data().status as AppBlockStatus) ?? null)
+          : null;
+        const isBanned = blockStatus !== null && ACTIVE_BLOCK_STATUSES.includes(blockStatus);
         if (!snap.exists()) {
           setProfile({
             displayName: selected.reportedUserName || "Unknown",
@@ -285,8 +302,9 @@ export default function Page() {
             age: "",
             gender: "",
             bio: "",
-            email: "",
-            isBanned: false,
+            email: blockSnap?.exists() ? blockSnap.data().email || "" : "",
+            isBanned,
+            blockStatus,
             timeoutUntil: null,
             reportCount,
           });
@@ -305,7 +323,8 @@ export default function Page() {
           gender: x.gender || "",
           bio: x.bio || "",
           email: x.email || "",
-          isBanned: x.is_banned === true,
+          isBanned,
+          blockStatus,
           timeoutUntil:
             x.timeout_until && x.timeout_until.toDate
               ? x.timeout_until.toDate()
@@ -356,11 +375,13 @@ export default function Page() {
     }
   };
 
+  /* Full app block (docs/user-blocking-contract.md §1): the server route
+   * disables their login; a Cloud Function hides everything they created. */
   const banUser = async (report: Report) => {
     if (!report.reportedUserId) return;
     if (
       !confirm(
-        `Ban ${report.reportedUserName || "this user"}? They will be flagged as banned.`,
+        `Ban ${report.reportedUserName || "this user"} from the app?\n\nThey'll be signed out and can't log back in, and their profile, messages, posts and everything else they created will be hidden. You can undo this with Unban or from Blocked Users.`,
       )
     ) {
       return;
@@ -368,30 +389,22 @@ export default function Page() {
     setBusy(true);
     try {
       const reviewer = auth.currentUser?.uid ?? "";
-      await Promise.all([
-        updateDoc(doc(db, "Users", report.reportedUserId), {
-          is_banned: true,
-          banned_at: serverTimestamp(),
-          banned_by: reviewer,
-          banned_reason: note.trim() || `Report ${report.id}`,
-        }),
-        updateDoc(doc(db, "reports", report.id), {
-          status: "action_taken",
-          reviewed_at: serverTimestamp(),
-          reviewed_by: reviewer,
-          moderator_notes: note.trim() || "User banned.",
-        }),
-      ]);
-      await notifyModeration({
-        uid: report.reportedUserId,
-        event: "banned",
-        reason: note.trim(),
+      await setAppBlock(report.reportedUserId, true, {
+        reason: note.trim() || `Report ${report.id}`,
+        source: "report",
+        reportId: report.id,
+      });
+      await updateDoc(doc(db, "reports", report.id), {
+        status: "action_taken",
+        reviewed_at: serverTimestamp(),
+        reviewed_by: reviewer,
+        moderator_notes: note.trim() || "User banned.",
       });
       setSelected(null);
       setNote("");
     } catch (e) {
       console.error(e);
-      alert("Ban failed. Check console.");
+      alert(`Ban failed: ${(e as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -399,23 +412,23 @@ export default function Page() {
 
   const unbanUser = async (report: Report) => {
     if (!report.reportedUserId) return;
-    if (!confirm(`Unban ${report.reportedUserName || "this user"}?`)) return;
+    if (
+      !confirm(
+        `Unban ${report.reportedUserName || "this user"}? Their login is re-enabled and everything that was hidden is restored.`,
+      )
+    )
+      return;
     setBusy(true);
     try {
-      const reviewer = auth.currentUser?.uid ?? "";
-      await updateDoc(doc(db, "Users", report.reportedUserId), {
-        is_banned: false,
-        unbanned_at: serverTimestamp(),
-        unbanned_by: reviewer,
-      });
+      await setAppBlock(report.reportedUserId, false);
       await notifyModeration({
         uid: report.reportedUserId,
         event: "unbanned",
       });
-      setProfile((p) => (p ? { ...p, isBanned: false } : p));
+      setProfile((p) => (p ? { ...p, isBanned: true, blockStatus: "restoring" } : p));
     } catch (e) {
       console.error(e);
-      alert("Unban failed. Check console.");
+      alert(`Unban failed: ${(e as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -829,9 +842,11 @@ export default function Page() {
                         >
                           Reported {profile.reportCount}×
                         </span>
-                        {profile.isBanned && (
+                        {profile.isBanned && profile.blockStatus && (
                           <span className="inline-block rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white">
-                            Banned
+                            {profile.blockStatus === "blocked"
+                              ? "Banned"
+                              : APP_BLOCK_LABEL[profile.blockStatus]}
                           </span>
                         )}
                         {isTempBlocked(profile.timeoutUntil) && (
@@ -1046,7 +1061,11 @@ export default function Page() {
               )}
               {profile?.isBanned ? (
                 <button
-                  disabled={busy}
+                  disabled={
+                    busy ||
+                    profile.blockStatus === "blocking" ||
+                    profile.blockStatus === "restoring"
+                  }
                   onClick={() => unbanUser(selected)}
                   className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
                 >

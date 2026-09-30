@@ -28,6 +28,7 @@ export const menuItems: MenuItem[] = [
   { name: "Feed Posts", path: "/dashboard/feed-posts", adminOnly: true },
   { name: "Contact Support", path: "/dashboard/contact", adminOnly: true },
   { name: "User Info", path: "/dashboard/users" },
+  { name: "Blocked Users", path: "/dashboard/blocked-users" },
   { name: "Newsletter", path: "/dashboard/newsletter" },
   { name: "Verify Photos", path: "/dashboard/verify-photos" },
   { name: "Notifications", path: "/dashboard/notifications" },
