@@ -8,6 +8,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   setDoc,
   doc,
   query,
@@ -238,10 +239,27 @@ export default function Page() {
           joinedAt: x.joinedAt || null,
           status: x.status || "active",
           blockState: x.blockState || "",
-          blockReason: x.blockReason || "",
+          blockReason: "",
         };
       });
-      setMembers(data.filter((m) => m.status === "active" || m.status === "blocked"));
+      // Block reasons live in a staff-only subcollection: member docs are
+      // readable by every app user (docs/user-blocking-contract.md §2.1).
+      const reasons = new Map<string, string>();
+      if (data.some((m) => m.status === "blocked")) {
+        try {
+          const blocksSnap = await getDocs(
+            collection(db, "Groups", groupId, "member_blocks")
+          );
+          blocksSnap.docs.forEach((d) => reasons.set(d.id, d.data().reason || ""));
+        } catch (err) {
+          console.error("Could not load block reasons:", err);
+        }
+      }
+      setMembers(
+        data
+          .filter((m) => m.status === "active" || m.status === "blocked")
+          .map((m) => ({ ...m, blockReason: reasons.get(m.id) ?? "" }))
+      );
     } catch (err) {
       console.error("Error fetching members:", err);
       setError("Failed to fetch members");
@@ -433,17 +451,28 @@ export default function Page() {
     );
     if (reason === null) return;
     try {
+      // Public member doc: status only. The reason is staff-only.
       await setDoc(
         doc(db, "Groups", viewingMembers.id, "members", m.id),
         {
           userId: m.userId || m.id,
           status: "blocked",
           blockedAt: serverTimestamp(),
-          blockedBy: auth.currentUser?.uid ?? "",
-          blockReason: reason.trim().slice(0, 500),
         },
         { merge: true }
       );
+      try {
+        await setDoc(doc(db, "Groups", viewingMembers.id, "member_blocks", m.id), {
+          uid: m.userId || m.id,
+          name: m.name || "",
+          reason: reason.trim().slice(0, 500),
+          blockedAt: serverTimestamp(),
+          blockedBy: auth.currentUser?.uid ?? "",
+        });
+      } catch (err) {
+        console.error("Block saved, but the reason could not be stored:", err);
+        setError("Member blocked, but the reason couldn't be saved.");
+      }
       await fetchMembers(viewingMembers.id);
       setGroups((prev) =>
         prev.map((g) =>
@@ -470,8 +499,13 @@ export default function Page() {
       await updateDoc(doc(db, "Groups", viewingMembers.id, "members", m.id), {
         status: "removed",
         unblockedAt: serverTimestamp(),
-        unblockedBy: auth.currentUser?.uid ?? "",
+        // Older blocks stored these publicly; clear them.
+        blockReason: deleteField(),
+        blockedBy: deleteField(),
       });
+      await deleteDoc(doc(db, "Groups", viewingMembers.id, "member_blocks", m.id)).catch(
+        (err) => console.error("Could not remove the block record:", err)
+      );
       setMembers((prev) => prev.filter((x) => x.id !== m.id));
     } catch (err) {
       console.error("Error unblocking member:", err);
