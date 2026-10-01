@@ -40,9 +40,14 @@ export async function POST(req: NextRequest) {
     const callerName = callerDoc.display_name || callerDoc.full_name || callerDoc.email || "";
 
     if (block) {
-      if (existing && ["blocking", "blocked", "restoring"].includes(existing.status)) {
+      // Repeating a block that is already under way or done (a double click,
+      // a page that hadn't caught up yet) is a no-op, not an error.
+      if (existing && ["blocking", "blocked"].includes(existing.status)) {
+        return NextResponse.json({ ok: true, status: existing.status });
+      }
+      if (existing?.status === "restoring") {
         return NextResponse.json(
-          { message: `This user is already ${existing.status}.` },
+          { message: "This user is being unblocked. Try again once that finishes." },
           { status: 409 },
         );
       }
@@ -99,7 +104,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, status: "blocking" });
     }
 
-    // Unblock
+    // Unblock. Repeating one that is already under way or done is a no-op.
+    if (existing && ["restoring", "unblocked"].includes(existing.status)) {
+      return NextResponse.json({ ok: true, status: existing.status });
+    }
     if (!existing || !["blocked", "failed"].includes(existing.status)) {
       return NextResponse.json(
         { message: existing ? `Can't unblock while ${existing.status}.` : "This user isn't blocked." },
