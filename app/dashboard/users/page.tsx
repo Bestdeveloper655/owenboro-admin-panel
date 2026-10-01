@@ -1,6 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Ban,
+  Crown,
+  Download,
+  Eye,
+  Images,
+  MessageSquareOff,
+  UserRound,
+  Users as UsersIcon,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import {
   collection,
   getDocs,
@@ -13,6 +25,24 @@ import { db } from "@/lib/firebaseServices";
 import { notifyModeration } from "@/lib/moderationNotify";
 import { authedFetch } from "@/lib/authedFetch";
 import { setAppBlock } from "@/lib/userBlocks";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  FilterSelect,
+  FormSection,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Pagination,
+  SearchInput,
+  Segmented,
+  TextArea,
+  Toolbar,
+  cx,
+  table,
+} from "@/components/ui";
 
 type User = {
   id: string;
@@ -330,333 +360,258 @@ export default function Page() {
   }, [filtered, page]);
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      {/* HEADER */}
-      <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
-            All Users Info
-          </h1>
-          <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
-            All users information is listed here.
-          </p>
-        </div>
+    <div>
+      <PageHeader
+        title="All Users Info"
+        description="All users information is listed here."
+        actions={
+          <Button variant="outline" icon={Download} onClick={exportCSV}>
+            Export CSV
+          </Button>
+        }
+      />
 
-        <button
-          onClick={exportCSV}
-          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white sm:self-auto sm:px-5 sm:text-base"
-        >
-          Export CSV
-        </button>
-      </div>
-
-      {/* SEARCH */}
-      <div className="mb-6 relative max-w-xl">
-        <svg
-          className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#ff7a59]"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.3-4.3" />
-        </svg>
-        <input
+      <Toolbar>
+        <SearchInput
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
           placeholder="Search by name, email, phone, or UID…"
-          className="w-full rounded-xl border border-white/15 bg-[#0a0a0a] py-3 pl-11 pr-10 text-white outline-none placeholder:text-white/40 focus:border-[#ff7a59]"
+          width="w-full sm:w-96"
         />
-        {search && (
-          <button
-            onClick={() => setSearch("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
-            aria-label="Clear search"
-          >
-            ✕
-          </button>
-        )}
-      </div>
 
-      {/* GENDER + AGE FILTERS */}
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
-          {(["all", "Male", "Female"] as GenderFilter[]).map((g) => (
-            <button
-              key={g}
-              type="button"
-              onClick={() => setGenderFilter(g)}
-              className={`rounded-lg px-3 py-1.5 transition sm:px-4 ${
-                genderFilter === g
-                  ? "bg-[#ff7a59] text-white"
-                  : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
-              }`}
-            >
-              {g === "all" ? "All genders" : g}
-            </button>
-          ))}
-        </div>
+        <Segmented<GenderFilter>
+          value={genderFilter}
+          onChange={setGenderFilter}
+          options={(["all", "Male", "Female"] as GenderFilter[]).map((g) => ({
+            value: g,
+            label: g === "all" ? "All genders" : g,
+          }))}
+        />
 
-        <div className="inline-flex flex-wrap rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
+        <FilterSelect
+          value={ageFilter}
+          onChange={(e) => setAgeFilter(e.target.value)}
+          aria-label="Filter by age"
+        >
           {[
             { key: "all", label: "All ages" },
             ...AGE_BUCKETS,
             { key: "unknown", label: "Age not set" },
           ].map((b) => (
-            <button
-              key={b.key}
-              type="button"
-              onClick={() => setAgeFilter(b.key)}
-              className={`rounded-lg px-3 py-1.5 transition ${
-                ageFilter === b.key
-                  ? "bg-[#ff7a59] text-white"
-                  : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
-              }`}
-            >
+            <option key={b.key} value={b.key}>
               {b.label}
-            </button>
+            </option>
           ))}
-        </div>
+        </FilterSelect>
 
         {(genderFilter !== "all" || ageFilter !== "all") && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            icon={X}
             onClick={() => {
               setGenderFilter("all");
               setAgeFilter("all");
             }}
-            className="text-sm text-[#f3ead7]/70 underline hover:text-white"
           >
             Clear filters
-          </button>
+          </Button>
         )}
-      </div>
+      </Toolbar>
 
-      {/* TABLE */}
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-6">
-        <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
-          Users ({filtered.length}
-          {isFiltered ? ` of ${users.length}` : ""})
-        </h2>
+      {/* LIST */}
+      {loading ? (
+        <LoadingState label="Loading users…" />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={UsersIcon}
+          title={
+            search
+              ? `No users match “${search}” with these filters.`
+              : "No users match these filters."
+          }
+        />
+      ) : (
+        <>
+          <div className={table.wrap}>
+            <table className={`${table.table} min-w-[900px]`}>
+              <thead className={table.thead}>
+                <tr>
+                  <th className={table.th}>Name</th>
+                  <th className={table.th}>Email</th>
+                  <th className={table.th}>Phone</th>
+                  <th className={table.th}>UID</th>
+                  <th className={table.th}>Gender</th>
+                  <th className={table.th}>Age</th>
+                  <th className={table.th}>Created</th>
+                  <th className={`${table.th} text-right`}>Manage</th>
+                </tr>
+              </thead>
 
-        {loading ? (
-          <p className="text-[#f3ead7]">Loading...</p>
-        ) : filtered.length === 0 ? (
-          <p className="text-[#f3ead7]/70">
-            {search ? `No users match “${search}” with these filters.` : "No users match these filters."}
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full min-w-[900px] text-left">
-                <thead className="bg-[#ece2cb] text-black">
-                  <tr>
-                    <th className="p-3">Name</th>
-                    <th className="p-3">Email</th>
-                    <th className="p-3">Phone</th>
-                    <th className="p-3">UID</th>
-                    <th className="p-3">Gender</th>
-                    <th className="p-3">Age</th>
-                    <th className="p-3">Created</th>
-                    <th className="p-3 text-right">Manage</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {paginated.map((u) => {
-                    const restricted = isActiveRestriction(u.timeoutUntil);
-                    return (
-                      <tr
-                        key={u.id}
-                        className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
-                      >
-                        <td className="p-3 font-semibold">
-                          <span className="inline-flex flex-wrap items-center gap-1.5">
-                            {u.name}
-                            {u.isVerified && <VerifiedBadge />}
-                            {u.isVip && (
-                              <span className="rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 px-2 py-0.5 text-[10px] font-bold uppercase text-black">
-                                VIP
-                              </span>
-                            )}
-                            {restricted && (
-                              <span className="rounded-full bg-red-500/90 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
-                                {isPermanent(u.timeoutUntil)
-                                  ? "Blocked"
-                                  : "Restricted"}
-                              </span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="p-3 text-[#ff7a59]">{u.email}</td>
-                        <td className="p-3">{u.phone}</td>
-                        <td className="p-3 text-xs">{u.uid}</td>
-                        <td className="p-3">{u.gender || "—"}</td>
-                        <td className="p-3">{u.age ?? "—"}</td>
-                        <td className="p-3 text-black/60">
-                          {u.createdAt?.toDate
-                            ? u.createdAt.toDate().toLocaleDateString()
-                            : "-"}
-                        </td>
-
-                        <td className="p-3">
-                          <div className="flex items-center justify-end gap-2">
-                            {restricted && (
-                              <button
-                                onClick={() => quickUnblock(u)}
-                                disabled={unblocking === u.id}
-                                className="rounded-lg border border-green-700 px-3 py-1 text-xs font-semibold text-green-800 hover:bg-green-700 hover:text-white disabled:opacity-50"
-                              >
-                                {unblocking === u.id ? "…" : "Unblock"}
-                              </button>
-                            )}
-                            <button
-                              onClick={() => setSelected(u)}
-                              className="rounded-lg bg-[#ff7a59] px-3 py-1 text-white text-xs"
-                            >
-                              View
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* PAGINATION */}
-            <div className="mt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-[#f3ead7]">
-              <p className="text-sm text-[#f3ead7]/70">
-                Showing {(page - 1) * perPage + 1}–
-                {Math.min(page * perPage, filtered.length)} of {filtered.length}
-              </p>
-
-              <div className="flex gap-2">
-                <button
-                  disabled={page === 1}
-                  onClick={() => setPage(page - 1)}
-                  className="px-3 py-1 border border-white/10 rounded-lg disabled:opacity-30"
-                >
-                  Prev
-                </button>
-
-                {Array.from({ length: totalPages }).map((_, i) => {
-                  const p = i + 1;
-                  if (p !== 1 && p !== totalPages && Math.abs(p - page) > 1)
-                    return null;
+              <tbody>
+                {paginated.map((u) => {
+                  const restricted = isActiveRestriction(u.timeoutUntil);
                   return (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p)}
-                      className={`px-3 py-1 rounded-lg ${
-                        page === p
-                          ? "bg-[#ff7a59] text-white"
-                          : "border border-white/10"
-                      }`}
-                    >
-                      {p}
-                    </button>
+                    <tr key={u.id} className={table.row}>
+                      <td className={table.td}>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-semibold">{u.name}</span>
+                          {u.isVerified && <VerifiedBadge />}
+                          {u.isVip && <VipBadge />}
+                          {restricted && (
+                            <Badge tone="red">
+                              {isPermanent(u.timeoutUntil) ? "Blocked" : "Restricted"}
+                            </Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className={`${table.td} text-black/70`}>{u.email}</td>
+                      <td className={`${table.td} whitespace-nowrap`}>{u.phone}</td>
+                      <td className={`${table.td} font-mono text-xs text-black/55`}>{u.uid}</td>
+                      <td className={table.td}>{u.gender || "—"}</td>
+                      <td className={`${table.td} tabular-nums`}>{u.age ?? "—"}</td>
+                      <td className={`${table.td} whitespace-nowrap text-black/60`}>
+                        {u.createdAt?.toDate
+                          ? u.createdAt.toDate().toLocaleDateString()
+                          : "-"}
+                      </td>
+
+                      <td className={table.td}>
+                        <div className={table.actions}>
+                          {restricted && (
+                            <Button
+                              size="sm"
+                              variant="success"
+                              loading={unblocking === u.id}
+                              onClick={() => quickUnblock(u)}
+                            >
+                              Unblock
+                            </Button>
+                          )}
+                          <Button size="sm" icon={Eye} onClick={() => setSelected(u)}>
+                            View
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          </div>
 
-                <button
-                  disabled={page === totalPages}
-                  onClick={() => setPage(page + 1)}
-                  className="px-3 py-1 border border-white/10 rounded-lg disabled:opacity-30"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </section>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            total={filtered.length}
+            perPage={perPage}
+            extra={
+              isFiltered && (
+                <span className="text-[#f3ead7]/50"> · {users.length} total</span>
+              )
+            }
+          />
+        </>
+      )}
 
       {/* USER DETAILS MODAL */}
       {selected && (
-        <Modal title="User Details" onClose={() => setSelected(null)}>
-          {/* PROFILE PHOTO + GALLERY */}
-          <UserPhotos user={selected} onZoom={(url) => setLightbox(url)} />
+        <Modal
+          title="User Details"
+          size="xl"
+          onClose={() => setSelected(null)}
+          footer={
+            <Button variant="light" onClick={() => setSelected(null)}>
+              Close
+            </Button>
+          }
+        >
+          <div className="grid gap-x-6 lg:grid-cols-2">
+            <div className="min-w-0">
+              <FormSection>Profile</FormSection>
 
-          <div className="space-y-3 text-black">
-            <p className="flex items-center gap-2">
-              <b>Name:</b> {selected.name}
-              {selected.isVerified && <VerifiedBadge />}
-            </p>
-            <p>
-              <b>Verified:</b> {selected.isVerified ? "Yes" : "No"}
-            </p>
-            <p className="flex items-center gap-2">
-              <b>Newsletter:</b>{" "}
-              {selected.promoOptIn === true ? (
-                <span className="rounded-full bg-green-600 px-2 py-0.5 text-xs font-semibold text-white">
-                  Opted in
-                </span>
-              ) : selected.promoOptIn === false ? (
-                <span className="rounded-full bg-black/30 px-2 py-0.5 text-xs font-semibold text-white">
-                  Opted out
-                </span>
-              ) : (
-                <span className="text-black/50">Not answered</span>
-              )}
-            </p>
-            <p>
-              <b>Email:</b> {selected.email}
-            </p>
-            <p>
-              <b>Phone:</b> {selected.phone}
-            </p>
-            <p>
-              <b>UID:</b> {selected.uid}
-            </p>
-            <p>
-              <b>Gender:</b> {selected.gender || "Not set"}
-            </p>
-            <p>
-              <b>Age:</b> {selected.age ?? "Not set"}
-            </p>
-            <p>
-              <b>Created:</b>{" "}
-              {selected.createdAt?.toDate
-                ? selected.createdAt.toDate().toLocaleString()
-                : "-"}
-            </p>
+              {/* PROFILE PHOTO + GALLERY */}
+              <UserPhotos user={selected} onZoom={(url) => setLightbox(url)} />
+
+              <dl
+                className={cx(
+                  SUB_PANEL,
+                  "mt-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm",
+                )}
+              >
+                <Detail label="Name">
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    {selected.name}
+                    {selected.isVerified && <VerifiedBadge />}
+                  </span>
+                </Detail>
+                <Detail label="Verified">
+                  <Badge tone={selected.isVerified ? "green" : "neutral"}>
+                    {selected.isVerified ? "Yes" : "No"}
+                  </Badge>
+                </Detail>
+                <Detail label="Newsletter">
+                  {selected.promoOptIn === true ? (
+                    <Badge tone="green">Opted in</Badge>
+                  ) : selected.promoOptIn === false ? (
+                    <Badge tone="neutral">Opted out</Badge>
+                  ) : (
+                    <span className="font-normal text-black/50">Not answered</span>
+                  )}
+                </Detail>
+                <Detail label="Email">{selected.email}</Detail>
+                <Detail label="Phone">{selected.phone}</Detail>
+                <Detail label="UID">
+                  <span className="font-mono text-xs break-all">{selected.uid}</span>
+                </Detail>
+                <Detail label="Gender">{selected.gender || "Not set"}</Detail>
+                <Detail label="Age">{selected.age ?? "Not set"}</Detail>
+                <Detail label="Created">
+                  {selected.createdAt?.toDate
+                    ? selected.createdAt.toDate().toLocaleString()
+                    : "-"}
+                </Detail>
+              </dl>
+            </div>
+
+            <div className="min-w-0">
+              <FormSection>Account controls</FormSection>
+
+              {/* VIP / PREMIUM CONTROLS */}
+              <VipPanel user={selected} onSetVip={(v) => setVip(selected, v)} />
+
+              {/* RESTRICTION CONTROLS */}
+              <RestrictionPanel
+                user={selected}
+                onApply={(opt) => applyRestriction(selected, opt)}
+              />
+
+              {/* BLOCK FROM APP */}
+              <AppBlockPanel
+                user={selected}
+                onBlocked={() => {
+                  setUsers((prev) => prev.filter((u) => u.id !== selected.id));
+                  setSelected(null);
+                }}
+              />
+            </div>
           </div>
-
-          {/* VIP / PREMIUM CONTROLS */}
-          <VipPanel user={selected} onSetVip={(v) => setVip(selected, v)} />
-
-          {/* RESTRICTION CONTROLS */}
-          <RestrictionPanel
-            user={selected}
-            onApply={(opt) => applyRestriction(selected, opt)}
-          />
-
-          {/* BLOCK FROM APP */}
-          <AppBlockPanel
-            user={selected}
-            onBlocked={() => {
-              setUsers((prev) => prev.filter((u) => u.id !== selected.id));
-              setSelected(null);
-            }}
-          />
         </Modal>
       )}
 
       {/* PHOTO LIGHTBOX — enlarged view of a single profile photo */}
       {lightbox && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/90 p-4 backdrop-blur-sm"
           onClick={() => setLightbox(null)}
         >
           <button
+            type="button"
             onClick={() => setLightbox(null)}
-            className="absolute right-4 top-4 text-3xl leading-none text-white/80 hover:text-white"
+            className="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
             aria-label="Close"
           >
-            ✕
+            <X className="h-5 w-5" />
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -668,6 +623,51 @@ export default function Page() {
         </div>
       )}
     </div>
+  );
+}
+
+/* Cream sub-panel that groups one block of the user details modal. */
+const SUB_PANEL = "rounded-2xl border border-black/10 bg-white/50 p-4";
+
+/* One label/value row of the details list. */
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt className="text-black/55">{label}</dt>
+      <dd className="min-w-0 font-medium wrap-break-word text-black">{children}</dd>
+    </>
+  );
+}
+
+/* Title row of a sub-panel: icon, heading and a status badge. */
+function PanelHeader({
+  icon: Icon,
+  title,
+  badge,
+  danger = false,
+}: {
+  icon: LucideIcon;
+  title: string;
+  badge?: ReactNode;
+  danger?: boolean;
+}) {
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-2">
+      <Icon className={cx("h-4 w-4", danger ? "text-red-700" : "text-black/50")} aria-hidden />
+      <h3 className={cx("text-sm font-semibold", danger ? "text-red-800" : "text-black")}>
+        {title}
+      </h3>
+      {badge}
+    </div>
+  );
+}
+
+function VipBadge() {
+  return (
+    <Badge tone="purple">
+      <Crown className="h-3 w-3" aria-hidden />
+      VIP
+    </Badge>
   );
 }
 
@@ -686,8 +686,9 @@ function UserPhotos({
 
   if (photos.length === 0) {
     return (
-      <div className="mb-5 flex items-center gap-4">
-        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-black/10 text-xs text-black/50">
+      <div className={cx(SUB_PANEL, "mt-4 flex items-center gap-4")}>
+        <div className="flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-full border border-dashed border-black/20 bg-black/5 text-[11px] text-black/45">
+          <UserRound className="h-5 w-5" aria-hidden />
           No photo
         </div>
         <p className="text-sm text-black/60">
@@ -698,12 +699,13 @@ function UserPhotos({
   }
 
   return (
-    <div className="mb-5">
+    <div className={cx(SUB_PANEL, "mt-4")}>
       {/* Main profile photo */}
-      <div className="mb-4 flex items-center gap-4">
+      <div className="flex items-center gap-4">
         <button
+          type="button"
           onClick={() => onZoom(photos[0])}
-          className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-black/10 ring-2 ring-[#ff7a59]/50"
+          className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-black/10 ring-2 ring-[#ff7a59]/50 transition hover:ring-[#ff7a59]"
           aria-label="View profile photo"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -713,18 +715,22 @@ function UserPhotos({
             className="h-full w-full object-cover"
           />
         </button>
-        <div>
-          <p className="text-sm font-semibold text-black">Profile photos</p>
-          <p className="text-xs text-black/60">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-black">
+            <Images className="h-4 w-4 text-black/50" aria-hidden />
+            Profile photos
+          </p>
+          <p className="mt-0.5 text-xs text-black/60">
             {photos.length} photo{photos.length > 1 ? "s" : ""} · tap to enlarge
           </p>
         </div>
       </div>
 
       {/* Grid gallery of all photos */}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+      <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
         {photos.map((url, i) => (
           <button
+            type="button"
             key={i}
             onClick={() => onZoom(url)}
             className="aspect-square overflow-hidden rounded-xl bg-black/10 ring-1 ring-black/10 transition hover:ring-2 hover:ring-[#ff7a59]"
@@ -767,45 +773,46 @@ function RestrictionPanel({
   };
 
   return (
-    <div className="mt-6 rounded-2xl border border-black/15 bg-white/40 p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="text-base font-bold text-black">Restrict messaging</span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-            active ? "bg-red-500 text-white" : "bg-green-600 text-white"
-          }`}
-        >
-          {active ? "Restricted" : "Active"}
-        </span>
-      </div>
+    <div className={cx(SUB_PANEL, "mt-4")}>
+      <PanelHeader
+        icon={MessageSquareOff}
+        title="Restrict messaging"
+        badge={
+          <Badge tone={active ? "red" : "green"}>{active ? "Restricted" : "Active"}</Badge>
+        }
+      />
 
-      <p className="mb-3 text-sm text-black/70">
+      <p className="text-sm font-medium text-black/80">
         {restrictionLabel(user.timeoutUntil)}
       </p>
-      <p className="mb-4 text-xs text-black/50">
+      <p className="mt-1 text-xs text-black/55">
         A restricted user can still view content but cannot send new messages in
         direct or group chats, or post stories, until the restriction ends.
       </p>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         {RESTRICTION_OPTIONS.map((opt) => (
-          <button
+          <Button
             key={opt.label}
+            size="sm"
+            variant="warning"
             disabled={busy !== null}
+            loading={busy === opt.label}
             onClick={() => run(opt)}
-            className="rounded-lg bg-[#ff7a59] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
           >
             {busy === opt.label ? "Saving…" : opt.label}
-          </button>
+          </Button>
         ))}
         {active && (
-          <button
+          <Button
+            size="sm"
+            variant="success"
             disabled={busy !== null}
+            loading={busy === "Remove"}
             onClick={() => run({ label: "Remove", ms: "remove" })}
-            className="rounded-lg border border-green-700 px-4 py-2 text-sm font-semibold text-green-800 transition hover:bg-green-700 hover:text-white disabled:opacity-50"
           >
             {busy === "Remove" ? "Saving…" : "Remove restriction"}
-          </button>
+          </Button>
         )}
       </div>
     </div>
@@ -840,19 +847,16 @@ function VipPanel({
   };
 
   return (
-    <div className="mt-6 rounded-2xl border border-amber-500/40 bg-amber-50/60 p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="text-base font-bold text-black">VIP / Premium</span>
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-            user.isVip ? "bg-amber-500 text-black" : "bg-black/20 text-black/70"
-          }`}
-        >
-          {user.isVip ? "VIP" : "Standard"}
-        </span>
-      </div>
+    <div className={cx(SUB_PANEL, "mt-4")}>
+      <PanelHeader
+        icon={Crown}
+        title="VIP / Premium"
+        badge={
+          user.isVip ? <VipBadge /> : <Badge tone="neutral">Standard</Badge>
+        }
+      />
 
-      <p className="mb-4 text-xs text-black/60">
+      <p className="text-sm text-black/60">
         {user.isVip
           ? isPaidSubscriber
             ? `This user has an active paid subscription (${user.subStore}). It's managed by the store and can't be changed here.`
@@ -860,32 +864,23 @@ function VipPanel({
           : "Grant VIP to unlock all premium features for this user, free of charge."}
       </p>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         {isPaidSubscriber ? (
           <span className="text-sm text-black/50">No admin action available.</span>
         ) : user.isVip ? (
-          <button
-            disabled={busy}
-            onClick={() => run(false)}
-            className="rounded-lg border border-red-600 px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-600 hover:text-white disabled:opacity-50"
-          >
+          <Button size="sm" variant="danger" loading={busy} onClick={() => run(false)}>
             {busy ? "Saving…" : "Revoke VIP"}
-          </button>
+          </Button>
         ) : (
-          <button
-            disabled={busy}
-            onClick={() => run(true)}
-            className="rounded-lg bg-gradient-to-r from-amber-500 to-yellow-400 px-4 py-2 text-sm font-bold text-black transition hover:opacity-90 disabled:opacity-50"
-          >
+          <Button size="sm" icon={Crown} loading={busy} onClick={() => run(true)}>
             {busy ? "Saving…" : "Make VIP (grant premium)"}
-          </button>
+          </Button>
         )}
       </div>
     </div>
   );
 }
 
-/* VERIFIED BADGE — blue check shown next to verified users */
 /* Full app block (docs/user-blocking-contract.md §1): disables the login and
  * hides everything the user created. Reversible from Blocked Users. */
 function AppBlockPanel({ user, onBlocked }: { user: User; onBlocked: () => void }) {
@@ -915,32 +910,35 @@ function AppBlockPanel({ user, onBlocked }: { user: User; onBlocked: () => void 
   };
 
   return (
-    <div className="mt-6 rounded-2xl border border-red-300 bg-red-50/60 p-4">
-      <h3 className="font-bold text-red-800">Block from app</h3>
-      <p className="mt-1 text-sm text-black/70">
+    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50/60 p-4">
+      <PanelHeader icon={Ban} title="Block from app" danger />
+      <p className="text-sm text-black/70">
         Signs them out everywhere, disables their login, and hides their profile
         and everything they&rsquo;ve posted, as if the account never existed.
         Use the restriction above if you only want to stop them messaging.
       </p>
-      <textarea
+      <TextArea
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         placeholder="Reason (only staff can see this)"
         maxLength={500}
-        className="mt-3 h-20 w-full rounded-xl border border-red-300 bg-white px-3 py-2 text-sm text-black"
+        className="mt-3"
       />
-      {error && <p className="mt-2 text-sm text-red-700">{error}</p>}
-      <button
-        onClick={block}
-        disabled={busy}
-        className="mt-3 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-      >
-        {busy ? "Blocking…" : "Block from app"}
-      </button>
+      {error && (
+        <Alert surface="light" className="mt-3">
+          {error}
+        </Alert>
+      )}
+      <div className="mt-3">
+        <Button variant="danger-solid" size="sm" icon={Ban} loading={busy} onClick={block}>
+          {busy ? "Blocking…" : "Block from app"}
+        </Button>
+      </div>
     </div>
   );
 }
 
+/* VERIFIED BADGE — blue check shown next to verified users */
 function VerifiedBadge() {
   return (
     <svg
@@ -956,20 +954,5 @@ function VerifiedBadge() {
       />
       <path fill="#fff" d="M10.6 14.6l-2.3-2.3-1.1 1.1 3.4 3.4 6-6-1.1-1.1z" />
     </svg>
-  );
-}
-
-/* MODAL */
-function Modal({ children, title, onClose }: any) {
-  return (
-    <div className="fixed inset-0 bg-black/70 flex justify-center items-center p-4">
-      <div className="bg-[#e8dcc7] p-6 rounded-3xl w-[90%] max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose}>✕</button>
-        </div>
-        {children}
-      </div>
-    </div>
   );
 }

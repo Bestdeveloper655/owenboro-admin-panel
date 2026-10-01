@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Check, Clock, ImageOff, ScanFace, X } from "lucide-react";
 import {
   collection,
   doc,
@@ -16,6 +17,21 @@ import {
 import { deleteObject, ref } from "firebase/storage";
 import { auth, db, storage } from "@/lib/firebaseServices";
 import { authedFetch } from "@/lib/authedFetch";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Segmented,
+  TextArea,
+  Toolbar,
+  cx,
+  type BadgeTone,
+} from "@/components/ui";
 
 type UserProfile = {
   fullName: string;
@@ -263,97 +279,41 @@ export default function Page() {
   const counts = useMemo(() => items.length, [items]);
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      <div className="mb-6 sm:mb-8">
-        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
-          Verify Photos
-        </h1>
-        <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
-          Review identity photos submitted by users.
-        </p>
-      </div>
+    <div>
+      <PageHeader title="Verify Photos" description="Review identity photos submitted by users." />
 
       {/* TABS */}
-      <div className="mb-6 flex gap-2">
-        {(["pending", "approved", "rejected"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`rounded-xl px-5 py-2 text-sm font-semibold capitalize transition ${
-              tab === t
-                ? "bg-[#ff7a59] text-white"
-                : "border border-[#ff7a59]/40 text-[#e8dcc7] hover:bg-[#ff7a59]/20"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <Toolbar>
+        <Segmented<Tab>
+          value={tab}
+          onChange={setTab}
+          options={(["pending", "approved", "rejected"] as Tab[]).map((t) => ({
+            value: t,
+            label: STATUS_BADGES[t].label,
+            count: t === tab && !loading ? counts : undefined,
+          }))}
+        />
+      </Toolbar>
 
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
-        <h2 className="mb-6 text-xl font-bold capitalize text-[#ff7a59] sm:text-2xl lg:text-3xl">
-          {tab} ({counts})
-        </h2>
-
-        {loading ? (
-          <p className="text-[#f3ead7]">Loading...</p>
-        ) : items.length === 0 ? (
-          <p className="text-[#f3ead7]/70">No {tab} submissions.</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {items.map((s) => (
-              <div
-                key={s.id}
-                className="rounded-2xl border border-white/10 bg-[#ece2cb] p-3 text-black"
+      {loading ? (
+        <LoadingState label="Loading submissions…" />
+      ) : items.length === 0 ? (
+        <EmptyState icon={ScanFace} title={`No ${tab} submissions.`} />
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {items.map((s) => (
+            <Card key={s.id} tone="cream" className="flex flex-col">
+              <button
+                type="button"
+                onClick={() => setSelected(s)}
+                className="group grid w-full grid-cols-2 gap-2 rounded-xl text-left focus-visible:ring-2 focus-visible:ring-[#ff7a59]/50 focus-visible:outline-none"
               >
-                <button
-                  type="button"
-                  onClick={() => setSelected(s)}
-                  className="block w-full"
-                >
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div>
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-black/50">
-                        ID photo
-                      </p>
-                      <div className="aspect-square w-full overflow-hidden rounded-xl bg-black/10">
-                        {s.photoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={s.photoUrl}
-                            alt="ID photo"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-xs text-black/50">
-                            No image
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-black/50">
-                        Profile pic
-                      </p>
-                      <div className="aspect-square w-full overflow-hidden rounded-xl bg-black/10">
-                        {s.profilePhotoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={s.profilePhotoUrl}
-                            alt="Profile picture"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-xs text-black/50">
-                            No image
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </button>
+                <PhotoTile label="ID photo" url={s.photoUrl} alt="ID photo" />
+                <PhotoTile label="Profile pic" url={s.profilePhotoUrl} alt="Profile picture" />
+              </button>
 
-                <div className="mt-3">
+              <div className="mt-4 flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <p className="truncate font-semibold">
                     {s.userDisplayName || "Unknown user"}
                   </p>
@@ -369,138 +329,100 @@ export default function Page() {
                       @{s.profile.username}
                     </p>
                   )}
-                  <p className="truncate text-xs text-black/60">{s.uid}</p>
-                  <p className="mt-1 text-xs text-black/60">
-                    {s.submittedAt?.toDate
-                      ? s.submittedAt.toDate().toLocaleString()
-                      : ""}
-                  </p>
-                  {tab === "rejected" && s.rejectionReason && (
-                    <p className="mt-2 text-xs text-red-700">
-                      <b>Reason:</b> {s.rejectionReason}
-                    </p>
-                  )}
                 </div>
-
-                {tab === "pending" && (
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      disabled={busy}
-                      onClick={() => approve(s)}
-                      className="flex-1 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      disabled={busy}
-                      onClick={() => {
-                        setRejectingId(s.id);
-                        setReason("");
-                      }}
-                      className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                    >
-                      Reject
-                    </button>
-                  </div>
-                )}
+                <StatusBadge status={s.status} />
               </div>
-            ))}
-          </div>
-        )}
-      </section>
 
-      {/* REJECT MODAL */}
-      {rejectingId && (
-        <Modal
-          title="Reject submission"
-          onClose={() => {
-            setRejectingId(null);
-            setReason("");
-          }}
-        >
-          <p className="text-sm text-black/70">
-            Optionally, give the user a reason. They can resubmit a new photo.
-          </p>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g. Photo is blurry, please retake."
-            className="mt-3 w-full rounded-xl border border-black/20 bg-white p-3 text-black outline-none focus:border-[#ff7a59]"
-            rows={4}
-          />
-          <div className="mt-4 flex justify-end gap-2">
-            <button
-              onClick={() => {
-                setRejectingId(null);
-                setReason("");
-              }}
-              className="rounded-lg border border-black/20 px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => {
-                const target = items.find((i) => i.id === rejectingId);
-                if (target) reject(target, reason.trim());
-              }}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-            >
-              {busy ? "Rejecting..." : "Confirm reject"}
-            </button>
-          </div>
-        </Modal>
+              <p className="mt-2 truncate font-mono text-[11px] text-black/45">{s.uid}</p>
+              {s.submittedAt?.toDate && (
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-black/60">
+                  <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {s.submittedAt.toDate().toLocaleString()}
+                </p>
+              )}
+
+              {tab === "rejected" && s.rejectionReason && (
+                <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs break-words text-red-800">
+                  <span className="font-semibold">Reason:</span> {s.rejectionReason}
+                </p>
+              )}
+
+              {tab === "pending" && (
+                <div className="mt-auto flex gap-2 pt-4">
+                  <Button
+                    variant="success"
+                    icon={Check}
+                    className="flex-1"
+                    disabled={busy}
+                    onClick={() => approve(s)}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    variant="danger"
+                    icon={X}
+                    className="flex-1"
+                    disabled={busy}
+                    onClick={() => {
+                      setRejectingId(s.id);
+                      setReason("");
+                    }}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
       )}
 
       {/* PHOTO LIGHTBOX */}
       {selected && (
-        <Modal title={selected.userDisplayName || "Submission"} onClose={() => setSelected(null)}>
-          <p className="mb-3 text-sm text-black/70">
-            Compare the ID photo against the profile picture to confirm the
-            user&apos;s identity.
-          </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-black/60">
-                ID photo
-              </p>
-              {selected.photoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={selected.photoUrl}
-                  alt="ID photo"
-                  className="max-h-[55vh] w-full rounded-xl bg-black/10 object-contain"
-                />
-              ) : (
-                <div className="flex h-40 items-center justify-center rounded-xl bg-black/10 text-sm text-black/50">
-                  No image
-                </div>
-              )}
-            </div>
-            <div>
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-black/60">
-                Profile picture
-              </p>
-              {selected.profilePhotoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={selected.profilePhotoUrl}
-                  alt="Profile picture"
-                  className="max-h-[55vh] w-full rounded-xl bg-black/10 object-contain"
-                />
-              ) : (
-                <div className="flex h-40 items-center justify-center rounded-xl bg-black/10 text-sm text-black/50">
-                  No profile picture
-                </div>
-              )}
-            </div>
+        <Modal
+          title={selected.userDisplayName || "Submission"}
+          description="Compare the ID photo against the profile picture to confirm the user's identity."
+          size="xl"
+          onClose={() => setSelected(null)}
+          footer={
+            selected.status === "pending" ? (
+              <>
+                <Button
+                  variant="danger"
+                  icon={X}
+                  disabled={busy}
+                  onClick={() => {
+                    setRejectingId(selected.id);
+                    setReason("");
+                  }}
+                >
+                  Reject
+                </Button>
+                <Button
+                  variant="success"
+                  icon={Check}
+                  disabled={busy}
+                  onClick={() => approve(selected)}
+                >
+                  Approve
+                </Button>
+              </>
+            ) : undefined
+          }
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <ComparePhoto label="ID photo" url={selected.photoUrl} alt="ID photo" empty="No image" />
+            <ComparePhoto
+              label="Profile picture"
+              url={selected.profilePhotoUrl}
+              alt="Profile picture"
+              empty="No profile picture"
+            />
           </div>
+
           {/* COMPLETE PROFILE */}
-          <div className="mt-5 rounded-2xl border border-black/10 bg-white/60 p-4">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-black/60">
-              User profile
-            </p>
-            <div className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm text-black sm:grid-cols-2">
+          <Panel title="User profile" className="mt-5">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
               <ProfileField
                 label="Name"
                 value={
@@ -529,25 +451,22 @@ export default function Page() {
               />
               <ProfileField label="Email" value={selected.profile?.email} />
               <ProfileField label="Phone" value={selected.profile?.phoneNumber} />
-            </div>
+            </dl>
             {selected.profile?.bio && (
-              <div className="mt-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-black/50">
+              <div className="mt-3 border-t border-black/10 pt-3">
+                <p className="text-xs font-semibold tracking-wide text-black/50 uppercase">
                   Bio
                 </p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-black/80">
+                <p className="mt-1 text-sm whitespace-pre-wrap break-words text-black/80">
                   {selected.profile.bio}
                 </p>
               </div>
             )}
-          </div>
+          </Panel>
 
           {/* PROFILE PHOTO GALLERY */}
           {selected.profile?.photoUrls && selected.profile.photoUrls.length > 0 && (
-            <div className="mt-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-black/60">
-                Profile photos ({selected.profile.photoUrls.length})
-              </p>
+            <Panel title={`Profile photos (${selected.profile.photoUrls.length})`} className="mt-4">
               <div className="flex flex-wrap gap-2">
                 {selected.profile.photoUrls.map((url, i) => (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -555,79 +474,170 @@ export default function Page() {
                     key={`${url}-${i}`}
                     src={url}
                     alt={`Profile photo ${i + 1}`}
-                    className="h-24 w-24 rounded-xl bg-black/10 object-cover"
+                    className="h-24 w-24 rounded-xl border border-black/10 bg-black/5 object-cover"
                   />
                 ))}
               </div>
-            </div>
+            </Panel>
           )}
 
-          <div className="mt-4 space-y-1 text-sm text-black">
-            <p>
-              <b>UID:</b> {selected.uid}
-            </p>
-            <p>
-              <b>Status:</b> {selected.status}
-            </p>
-            <p>
-              <b>Submitted:</b>{" "}
-              {selected.submittedAt?.toDate
-                ? selected.submittedAt.toDate().toLocaleString()
-                : "-"}
-            </p>
-          </div>
-          {selected.status === "pending" && (
-            <div className="mt-5 flex gap-2">
-              <button
-                disabled={busy}
-                onClick={() => approve(selected)}
-                className="flex-1 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
-              >
-                Approve
-              </button>
-              <button
-                disabled={busy}
+          <Panel title="Submission" className="mt-4">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
+              <ProfileField
+                label="UID"
+                value={selected.uid && <span className="font-mono text-xs break-all">{selected.uid}</span>}
+              />
+              <ProfileField label="Status" value={<StatusBadge status={selected.status} />} />
+              <ProfileField
+                label="Submitted"
+                value={
+                  selected.submittedAt?.toDate
+                    ? selected.submittedAt.toDate().toLocaleString()
+                    : "-"
+                }
+              />
+            </dl>
+          </Panel>
+        </Modal>
+      )}
+
+      {/* REJECT MODAL — rendered after the lightbox so it opens on top of it. */}
+      {rejectingId && (
+        <Modal
+          title="Reject submission"
+          description="Optionally, give the user a reason. They can resubmit a new photo."
+          size="md"
+          onClose={() => {
+            setRejectingId(null);
+            setReason("");
+          }}
+          footer={
+            <>
+              <Button
+                variant="light"
                 onClick={() => {
-                  setRejectingId(selected.id);
+                  setRejectingId(null);
                   setReason("");
                 }}
-                className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
               >
-                Reject
-              </button>
-            </div>
-          )}
+                Cancel
+              </Button>
+              <Button
+                variant="danger-solid"
+                loading={busy}
+                onClick={() => {
+                  const target = items.find((i) => i.id === rejectingId);
+                  if (target) reject(target, reason.trim());
+                }}
+              >
+                {busy ? "Rejecting…" : "Confirm reject"}
+              </Button>
+            </>
+          }
+        >
+          <Field label="Reason">
+            <TextArea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Photo is blurry, please retake."
+              rows={4}
+            />
+          </Field>
         </Modal>
       )}
     </div>
   );
 }
 
-function ProfileField({ label, value }: { label: string; value?: string | null }) {
+const STATUS_BADGES: Record<Submission["status"], { tone: BadgeTone; label: string }> = {
+  pending: { tone: "amber", label: "Pending" },
+  approved: { tone: "green", label: "Approved" },
+  rejected: { tone: "red", label: "Rejected" },
+};
+
+function StatusBadge({ status }: { status: Submission["status"] }) {
+  const badge: { tone: BadgeTone; label: string } = STATUS_BADGES[status] ?? {
+    tone: "neutral",
+    label: status,
+  };
+  return <Badge tone={badge.tone}>{badge.label}</Badge>;
+}
+
+/* Square photo inside a submission card, labelled in its corner. */
+function PhotoTile({ label, url, alt }: { label: string; url: string; alt: string }) {
   return (
-    <div className="flex flex-col">
-      <span className="text-xs font-semibold uppercase tracking-wide text-black/50">
+    <span className="relative block aspect-square w-full overflow-hidden rounded-xl border border-black/10 bg-black/5 transition group-hover:border-[#ff7a59]">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={alt} className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full flex-col items-center justify-center gap-1 text-xs text-black/45">
+          <ImageOff className="h-5 w-5" aria-hidden />
+          No image
+        </span>
+      )}
+      <span className="absolute top-2 left-2 rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-white uppercase">
         {label}
       </span>
-      <span className="break-words text-sm text-black/90">
-        {value ? value : "—"}
-      </span>
+    </span>
+  );
+}
+
+/* Full-size photo in the review modal. */
+function ComparePhoto({
+  label,
+  url,
+  alt,
+  empty,
+}: {
+  label: string;
+  url: string;
+  alt: string;
+  empty: string;
+}) {
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-semibold tracking-wide text-black/55 uppercase">{label}</p>
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt={alt}
+          className="max-h-[55vh] w-full rounded-xl border border-black/10 bg-black/5 object-contain"
+        />
+      ) : (
+        <div className="flex h-40 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-black/20 bg-black/5 text-sm text-black/45">
+          <ImageOff className="h-5 w-5" aria-hidden />
+          {empty}
+        </div>
+      )}
     </div>
   );
 }
 
-function Modal({ children, title, onClose }: any) {
+/* Bordered group inside the review modal. */
+function Panel({
+  title,
+  className,
+  children,
+}: {
+  title: string;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-[#e8dcc7] p-6">
-        <div className="mb-4 flex justify-between">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose} className="text-2xl">
-            ✕
-          </button>
-        </div>
-        {children}
-      </div>
+    <div className={cx("rounded-2xl border border-black/10 bg-white/50 p-4", className)}>
+      <p className="mb-3 text-xs font-bold tracking-wide text-black/55 uppercase">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function ProfileField({ label, value }: { label: string; value?: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-semibold tracking-wide text-black/50 uppercase">{label}</dt>
+      <dd className="mt-0.5 text-sm break-words text-black/90">{value ? value : "—"}</dd>
     </div>
   );
 }

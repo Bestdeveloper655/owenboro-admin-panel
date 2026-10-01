@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   collection,
   collectionGroup,
@@ -18,9 +18,37 @@ import {
   type DocumentReference,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { X } from "lucide-react";
+import {
+  CalendarDays,
+  MessageSquareOff,
+  Pause,
+  Play,
+  RefreshCw,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { db } from "@/lib/firebaseServices";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  FilterSelect,
+  FormSection,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Segmented,
+  Spinner,
+  Toolbar,
+  cx,
+  filterControlClass,
+  table,
+  type BadgeTone,
+} from "@/components/ui";
 
 /* Meetup with Friends moderation (docs/meetups-contract.md §8). Staff may only
  * read meetups, toggle `chatPaused`, delete a meetup and delete chat messages.
@@ -107,10 +135,10 @@ function toMeetup(d: QueryDocumentSnapshot): Meetup {
   };
 }
 
-const STATUS_STYLE: Record<Status, string> = {
-  Upcoming: "bg-green-600 text-white",
-  Full: "bg-amber-500 text-black",
-  Past: "bg-black/20 text-black",
+const STATUS_TONE: Record<Status, BadgeTone> = {
+  Upcoming: "green",
+  Full: "amber",
+  Past: "neutral",
 };
 
 export default function Page() {
@@ -269,161 +297,150 @@ export default function Page() {
   const groupName = (gid: string) => groups.get(gid) || gid || "—";
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">Meetups</h1>
-          <p className="mt-2 max-w-3xl text-base text-[#e8dcc7] sm:text-lg">
-            Meetup with Friends across all groups. Times are shown in Central time,
-            as in the app.
-          </p>
-        </div>
-        <button
-          onClick={findOldUnpaused}
-          disabled={busy}
-          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white disabled:opacity-50"
-        >
-          Pause chats of meetups over {PAST_DAYS} days old
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Meetups"
+        description="Meetup with Friends across all groups. Times are shown in Central time, as in the app."
+        actions={
+          <Button variant="outline" icon={MessageSquareOff} onClick={findOldUnpaused} disabled={busy}>
+            Pause chats of meetups over {PAST_DAYS} days old
+          </Button>
+        }
+      />
 
       {/* FILTERS */}
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <select
-          value={groupId}
-          onChange={(e) => setGroupId(e.target.value)}
-          className="rounded-xl border border-white/15 bg-[#0a0a0a] px-3 py-2 text-sm text-white outline-none focus:border-[#ff7a59]"
-        >
+      <Toolbar>
+        <FilterSelect value={groupId} onChange={(e) => setGroupId(e.target.value)}>
           <option value="">All groups</option>
           {[...groups].map(([id, name]) => (
             <option key={id} value={id}>
               {name}
             </option>
           ))}
-        </select>
+        </FilterSelect>
 
-        <div className="inline-flex rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
-          {(["upcoming", "past", "all"] as StatusFilter[]).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setStatusFilter(f)}
-              className={`rounded-lg px-3 py-1.5 capitalize transition sm:px-4 ${
-                statusFilter === f ? "bg-[#ff7a59] text-white" : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
+        <Segmented<StatusFilter>
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={[
+            { value: "upcoming", label: "Upcoming" },
+            { value: "past", label: "Past" },
+            { value: "all", label: "All" },
+          ]}
+        />
 
-        <label className="flex items-center gap-2 text-sm text-[#f3ead7]">
+        <label className={cx(filterControlClass, "flex cursor-pointer items-center gap-2 text-[#f4ead7]")}>
           <input
             type="checkbox"
             checked={pausedOnly}
             onChange={(e) => setPausedOnly(e.target.checked)}
+            className="h-4 w-4 accent-[#ff7a59]"
           />
           Chat paused only
         </label>
 
-        <button
-          type="button"
-          onClick={() => load(groupId)}
-          className="text-sm text-[#f3ead7]/70 underline hover:text-white"
-        >
+        <Button variant="secondary" icon={RefreshCw} onClick={() => load(groupId)}>
           Refresh
-        </button>
-      </div>
+        </Button>
+      </Toolbar>
 
       {error && (
-        <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <Alert className="mb-6" onDismiss={() => setError("")}>
           {error}
-        </div>
+        </Alert>
       )}
       {notice && !error && (
-        <div className="mb-4 rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+        <Alert tone="success" className="mb-6" onDismiss={() => setNotice("")}>
           {notice}
-        </div>
+        </Alert>
       )}
 
       {/* LIST */}
       {loading ? (
-        <div className="rounded-2xl border border-[#ff7a59]/40 bg-[#0a0a0a] px-5 py-10 text-center text-[#f3ead7]/70">
-          Loading meetups…
-        </div>
+        <LoadingState label="Loading meetups…" />
       ) : visible.length === 0 ? (
-        <div className="rounded-2xl border border-[#ff7a59]/40 bg-[#0a0a0a] px-5 py-10 text-center text-[#f3ead7]/70">
-          {meetups.length === 0 ? "No meetups yet." : "No meetups match these filters."}
-        </div>
+        <EmptyState
+          icon={CalendarDays}
+          title={meetups.length === 0 ? "No meetups yet." : "No meetups match these filters."}
+        />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-white/10">
-          <table className="w-full min-w-[1000px] text-left">
-            <thead className="bg-[#ece2cb] text-black">
+        <div className={table.wrap}>
+          <table className={`${table.table} min-w-[900px]`}>
+            <thead className={table.thead}>
               <tr>
-                <th className="p-3">Title</th>
-                <th className="p-3">Group</th>
-                <th className="p-3">Host</th>
-                <th className="p-3">When</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Joined</th>
-                <th className="p-3">Likes</th>
-                <th className="p-3">Dislikes</th>
-                <th className="p-3">Chat</th>
-                <th className="p-3 text-right">Actions</th>
+                <th className={table.th}>Title</th>
+                <th className={table.th}>Group · Host</th>
+                <th className={table.th}>When</th>
+                <th className={table.th}>Status</th>
+                <th className={table.th}>Joined</th>
+                <th className={table.th}>Reactions</th>
+                <th className={`${table.th} text-right`}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((m) => {
                 const status = statusOf(m, now);
                 return (
-                  <tr
-                    key={m.ref.path}
-                    className="border-b border-white/10 bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
-                  >
-                    <td className="max-w-[220px] truncate p-3 font-semibold">{m.title}</td>
-                    <td className="p-3 text-black/70">{groupName(m.groupId)}</td>
-                    <td className="p-3">{m.creatorName}</td>
-                    <td className="whitespace-nowrap p-3">{formatWhen(m.startAt)}</td>
-                    <td className="p-3">
-                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[status]}`}>
-                        {status}
-                      </span>
+                  <tr key={m.ref.path} className={table.row}>
+                    <td className={table.td}>
+                      <p className="max-w-[220px] truncate font-semibold" title={m.title}>
+                        {m.title}
+                      </p>
                     </td>
-                    <td className="p-3">
+                    <td className={table.td}>
+                      <div className="max-w-[200px]">
+                        <p className="truncate" title={groupName(m.groupId)}>
+                          {groupName(m.groupId)}
+                        </p>
+                        <p className="truncate text-xs text-black/55" title={m.creatorName}>
+                          by {m.creatorName}
+                        </p>
+                      </div>
+                    </td>
+                    <td className={`${table.td} whitespace-nowrap`}>{formatWhen(m.startAt)}</td>
+                    <td className={table.td}>
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge tone={STATUS_TONE[status]}>{status}</Badge>
+                        {m.chatPaused && <Badge tone="red">Chat paused</Badge>}
+                      </div>
+                    </td>
+                    <td className={`${table.td} whitespace-nowrap tabular-nums`}>
                       {m.joinedCount} / {m.spots ?? "∞"}
                     </td>
-                    <td className="p-3">{m.likeCount}</td>
-                    <td className="p-3">{m.dislikeCount}</td>
-                    <td className="p-3">
-                      {m.chatPaused ? (
-                        <span className="rounded-full bg-red-500/90 px-2 py-0.5 text-xs font-semibold text-white">
-                          Paused
+                    <td className={`${table.td} whitespace-nowrap tabular-nums`}>
+                      <span className="inline-flex items-center gap-3 text-black/70">
+                        <span className="inline-flex items-center gap-1" title="Likes">
+                          <ThumbsUp className="h-3.5 w-3.5 text-black/40" aria-label="Likes" />
+                          {m.likeCount}
                         </span>
-                      ) : (
-                        <span className="text-xs text-black/60">Open</span>
-                      )}
+                        <span className="inline-flex items-center gap-1" title="Dislikes">
+                          <ThumbsDown className="h-3.5 w-3.5 text-black/40" aria-label="Dislikes" />
+                          {m.dislikeCount}
+                        </span>
+                      </span>
                     </td>
-                    <td className="p-3">
-                      <div className="flex justify-end gap-2 whitespace-nowrap">
-                        <button
-                          onClick={() => setSelected(m)}
-                          className="rounded-lg bg-[#ff7a59] px-3 py-1 text-xs text-white"
-                        >
+                    <td className={table.td}>
+                      <div className={table.actions}>
+                        <Button size="sm" onClick={() => setSelected(m)}>
                           View
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="light"
+                          icon={m.chatPaused ? Play : Pause}
                           onClick={() => setChatPaused(m, !m.chatPaused)}
                           disabled={busy}
-                          className="rounded-lg border border-black/20 px-3 py-1 text-xs disabled:opacity-50"
-                        >
-                          {m.chatPaused ? "Resume chat" : "Pause chat"}
-                        </button>
-                        <button
+                          title={m.chatPaused ? "Resume chat" : "Pause chat"}
+                          aria-label={m.chatPaused ? "Resume chat" : "Pause chat"}
+                        />
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          icon={Trash2}
                           onClick={() => setDeleting(m)}
-                          className="rounded-lg border border-red-400 px-3 py-1 text-xs text-red-500 hover:bg-red-500 hover:text-white"
-                        >
-                          Delete
-                        </button>
+                          title="Delete meetup"
+                          aria-label="Delete meetup"
+                        />
                       </div>
                     </td>
                   </tr>
@@ -447,76 +464,77 @@ export default function Page() {
         />
       )}
 
+      {/* Confirm dialogs sit above the drawer. */}
       {deleting && (
-        <Modal title="Delete meetup" onClose={() => !busy && setDeleting(null)}>
+        <Modal
+          layer="top"
+          title="Delete meetup"
+          size="sm"
+          onClose={() => !busy && setDeleting(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setDeleting(null)} disabled={busy}>
+                Cancel
+              </Button>
+              <Button variant="danger-solid" onClick={confirmDelete} loading={busy}>
+                {busy ? "Deleting…" : "Delete"}
+              </Button>
+            </>
+          }
+        >
           <p>
-            Delete <b>{deleting.title}</b>? Its chat, members, votes, invites and the
-            card in the group chat are removed too. This can&rsquo;t be undone.
+            Delete <span className="font-semibold">{deleting.title}</span>? Its chat, members,
+            votes, invites and the card in the group chat are removed too. This can&rsquo;t be
+            undone.
           </p>
           {statusOf(deleting, now) !== "Past" && deleting.joinedCount > 0 && (
-            <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-900">
+            <Alert tone="warning" surface="light" className="mt-4">
               {deleting.joinedCount} member{deleting.joinedCount === 1 ? "" : "s"} will be
               notified that the meetup was cancelled.
-            </p>
+            </Alert>
           )}
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={() => setDeleting(null)}
-              disabled={busy}
-              className="rounded-xl border border-black/15 px-4 py-2"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDelete}
-              disabled={busy}
-              className="rounded-xl bg-red-500 px-4 py-2 text-white disabled:opacity-60"
-            >
-              {busy ? "Deleting…" : "Delete"}
-            </button>
-          </div>
         </Modal>
       )}
 
       {bulk && (
-        <Modal title="Pause old meetup chats" onClose={() => !busy && setBulk(null)}>
+        <Modal
+          layer="top"
+          title="Pause old meetup chats"
+          size="sm"
+          onClose={() => !busy && setBulk(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setBulk(null)} disabled={busy}>
+                {bulk.length === 0 ? "Close" : "Cancel"}
+              </Button>
+              {bulk.length > 0 && (
+                <Button onClick={confirmBulkPause} loading={busy}>
+                  {busy ? "Pausing…" : `Pause ${bulk.length}`}
+                </Button>
+              )}
+            </>
+          }
+        >
           {bulk.length === 0 ? (
             <p>
-              Every meetup that started more than {PAST_DAYS} days ago already has its
-              chat paused.
+              Every meetup that started more than {PAST_DAYS} days ago already has its chat
+              paused.
             </p>
           ) : (
             <p>
-              Pause the chat of <b>{bulk.length}</b> meetup{bulk.length === 1 ? "" : "s"} that
-              started more than {PAST_DAYS} days ago? Members can still read the chat
-              but can&rsquo;t send new messages.
+              Pause the chat of <span className="font-semibold">{bulk.length}</span> meetup
+              {bulk.length === 1 ? "" : "s"} that started more than {PAST_DAYS} days ago?
+              Members can still read the chat but can&rsquo;t send new messages.
             </p>
           )}
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={() => setBulk(null)}
-              disabled={busy}
-              className="rounded-xl border border-black/15 px-4 py-2"
-            >
-              {bulk.length === 0 ? "Close" : "Cancel"}
-            </button>
-            {bulk.length > 0 && (
-              <button
-                onClick={confirmBulkPause}
-                disabled={busy}
-                className="rounded-xl bg-[#ff7a59] px-4 py-2 text-white disabled:opacity-60"
-              >
-                {busy ? "Pausing…" : `Pause ${bulk.length}`}
-              </button>
-            )}
-          </div>
         </Modal>
       )}
     </div>
   );
 }
 
-/* DETAIL DRAWER */
+/* DETAIL DRAWER — a side panel the kit's Modal can't express, styled with the
+ * same tokens (cream panel, dimmed blurred overlay, round X button). */
 function MeetupDrawer({
   meetup,
   groupName,
@@ -598,85 +616,112 @@ function MeetupDrawer({
     }
   };
 
+  const stats: Array<[string, ReactNode]> = [
+    ["Status", <Badge key="status" tone={STATUS_TONE[status]}>{status}</Badge>],
+    ["Spots", `${meetup.joinedCount} / ${meetup.spots ?? "unlimited"}`],
+    ["Likes", meetup.likeCount],
+    ["Dislikes", meetup.dislikeCount],
+    ["Kicked", meetup.kickedCount],
+    ["Blocked", meetup.blockedCount],
+    [
+      "Chat",
+      meetup.chatPaused ? (
+        <Badge key="chat" tone="red">Paused</Badge>
+      ) : (
+        "Open"
+      ),
+    ],
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={meetup.title}
         onClick={(e) => e.stopPropagation()}
         className="flex h-full w-full max-w-xl flex-col overflow-hidden bg-[#e8dcc7] text-black shadow-2xl"
       >
-        <header className="flex items-start justify-between gap-3 border-b border-black/10 p-5">
+        <header className="flex items-start justify-between gap-4 border-b border-black/10 px-6 pt-6 pb-4">
           <div className="min-w-0">
-            <h2 className="truncate text-2xl font-bold text-[#ff7a59]">{meetup.title}</h2>
-            <p className="text-sm text-black/60">
+            <h2 className="truncate text-xl font-bold text-[#ff7a59]">{meetup.title}</h2>
+            <p className="mt-1 text-sm text-black/60">
               {groupName} · {formatWhen(meetup.startAt)}
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/10 hover:bg-black/20"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/10 text-black transition hover:bg-black/20"
             aria-label="Close"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
         </header>
 
-        <div className="flex-1 space-y-6 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-5 pb-6">
           {error && (
-            <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+            <Alert surface="light" className="mb-4">
               {error}
-            </div>
+            </Alert>
           )}
 
           {/* INFO */}
-          <section className="space-y-2 text-sm">
-            {meetup.description && <p className="whitespace-pre-wrap">{meetup.description}</p>}
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-              <p><b>Status:</b> {status}</p>
-              <p><b>Spots:</b> {meetup.joinedCount} / {meetup.spots ?? "unlimited"}</p>
-              <p><b>Likes:</b> {meetup.likeCount}</p>
-              <p><b>Dislikes:</b> {meetup.dislikeCount}</p>
-              <p><b>Kicked:</b> {meetup.kickedCount}</p>
-              <p><b>Blocked:</b> {meetup.blockedCount}</p>
-              <p><b>Chat:</b> {meetup.chatPaused ? "Paused" : "Open"}</p>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
+          <section className="text-sm">
+            {meetup.description && (
+              <p className="mb-4 whitespace-pre-wrap break-words">{meetup.description}</p>
+            )}
+            <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {stats.map(([label, value]) => (
+                <div key={label} className="rounded-xl border border-black/10 bg-white/50 px-3 py-2">
+                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-black/50">
+                    {label}
+                  </dt>
+                  <dd className="mt-0.5 font-semibold tabular-nums">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                variant="light"
+                size="sm"
+                icon={meetup.chatPaused ? Play : Pause}
                 onClick={onToggleChat}
                 disabled={busy}
-                className="rounded-lg border border-black/20 px-3 py-1.5 text-sm disabled:opacity-50"
               >
                 {meetup.chatPaused ? "Resume chat" : "Pause chat"}
-              </button>
-              <button
-                onClick={onDelete}
-                className="rounded-lg border border-red-400 px-3 py-1.5 text-sm text-red-500 hover:bg-red-500 hover:text-white"
-              >
+              </Button>
+              <Button variant="danger" size="sm" icon={Trash2} onClick={onDelete}>
                 Delete meetup
-              </button>
+              </Button>
             </div>
           </section>
 
           {/* HOST + MEMBERS */}
           <section>
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-black/60">Host</h3>
-            <Person name={meetup.creatorName} photo={meetup.creatorPhoto} />
+            <FormSection>Host</FormSection>
+            <div className="mt-3">
+              <Person name={meetup.creatorName} photo={meetup.creatorPhoto} />
+            </div>
 
-            <h3 className="mb-2 mt-4 text-sm font-bold uppercase tracking-wide text-black/60">
-              Members {members ? `(${members.length})` : ""}
-            </h3>
+            <FormSection>Members {members ? `(${members.length})` : ""}</FormSection>
             {members === null ? (
-              <p className="text-sm text-black/50">Loading…</p>
+              <DrawerLoading />
             ) : members.length === 0 ? (
-              <p className="text-sm text-black/50">Nobody has joined yet.</p>
+              <p className="mt-3 text-sm text-black/50">Nobody has joined yet.</p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="mt-3 space-y-2">
                 {members.map((mem) => (
-                  <li key={mem.id} className="flex items-center justify-between gap-3">
+                  <li
+                    key={mem.id}
+                    className="flex items-center justify-between gap-3 rounded-xl bg-white/50 px-3 py-2"
+                  >
                     <Person name={mem.name} photo={mem.photo} />
-                    <span className="shrink-0 text-xs text-black/55">
-                      {mem.via !== "join" && (
-                        <span className="mr-2 rounded-full bg-black/10 px-2 py-0.5">{mem.via}</span>
-                      )}
+                    <span className="flex shrink-0 items-center gap-2 text-xs text-black/55">
+                      {mem.via !== "join" && <Badge>{mem.via}</Badge>}
                       {formatWhen(mem.joinedAt)}
                     </span>
                   </li>
@@ -687,25 +732,29 @@ function MeetupDrawer({
 
           {/* CHAT */}
           <section>
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-black/60">
-              Chat {messages ? `(${messages.length})` : ""}
-            </h3>
+            <FormSection>Chat {messages ? `(${messages.length})` : ""}</FormSection>
             {messages === null ? (
-              <p className="text-sm text-black/50">Loading…</p>
+              <DrawerLoading />
             ) : messages.length === 0 ? (
-              <p className="text-sm text-black/50">No messages yet.</p>
+              <p className="mt-3 text-sm text-black/50">No messages yet.</p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="mt-3 space-y-2">
                 {messages.map((msg) =>
                   msg.type === "system" ? (
-                    <li key={msg.id} className="group flex items-center justify-center gap-2 text-xs italic text-black/50">
+                    <li
+                      key={msg.id}
+                      className="flex items-center justify-center gap-2 py-1 text-xs italic text-black/50"
+                    >
                       <span>{msg.message}</span>
                       <DeleteLink onClick={() => deleteMessage(msg)} />
                     </li>
                   ) : (
-                    <li key={msg.id} className="rounded-xl bg-white/70 px-3 py-2 text-sm">
+                    <li
+                      key={msg.id}
+                      className="rounded-xl border border-black/5 bg-white/70 px-3 py-2 text-sm"
+                    >
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="font-semibold">{msg.userName}</span>
+                        <span className="min-w-0 truncate font-semibold">{msg.userName}</span>
                         <span className="flex shrink-0 items-center gap-2 text-xs text-black/45">
                           {msg.createdAt ? formatWhen(msg.createdAt) : "sending…"}
                           <DeleteLink onClick={() => deleteMessage(msg)} />
@@ -724,11 +773,24 @@ function MeetupDrawer({
   );
 }
 
+function DrawerLoading() {
+  return (
+    <p className="mt-3 flex items-center gap-2 text-sm text-black/50">
+      <Spinner className="h-4 w-4" />
+      Loading…
+    </p>
+  );
+}
+
 function Person({ name, photo }: { name: string; photo: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       {photo ? (
-        <img src={photo} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+        <img
+          src={photo}
+          alt=""
+          className="h-8 w-8 shrink-0 rounded-full border border-black/10 object-cover"
+        />
       ) : (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/10 text-xs font-semibold">
           {name.charAt(0).toUpperCase()}
@@ -741,32 +803,12 @@ function Person({ name, photo }: { name: string; photo: string }) {
 
 function DeleteLink({ onClick }: { onClick: () => void }) {
   return (
-    <button onClick={onClick} className="not-italic text-red-600 hover:underline">
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded font-medium not-italic text-red-600 transition hover:text-red-700 hover:underline"
+    >
       Delete
     </button>
-  );
-}
-
-function Modal({
-  children,
-  title,
-  onClose,
-}: {
-  children: React.ReactNode;
-  title: string;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4">
-      <div className="w-full max-w-lg rounded-3xl bg-[#e8dcc7] p-6 text-black shadow-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose} aria-label="Close">
-            ✖
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
   );
 }

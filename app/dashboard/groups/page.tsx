@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   collection,
   getDocs,
@@ -22,7 +22,44 @@ import {
   deleteObject,
 } from "firebase/storage";
 import { serverTimestamp } from "firebase/firestore";
+import {
+  Check,
+  ImagePlus,
+  MoreVertical,
+  Pause,
+  Play,
+  Plus,
+  Power,
+  Search,
+  Trash2,
+  Users,
+  UsersRound,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { auth, db, storage } from "@/lib/firebaseServices";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  FormSection,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Pagination,
+  SectionHeading,
+  SelectInput,
+  Spinner,
+  Switch,
+  TextArea,
+  TextInput,
+  buttonClass,
+  cx,
+  table,
+} from "@/components/ui";
 
 /**
  * This user is automatically added as an admin member to every group the
@@ -573,246 +610,187 @@ export default function Page() {
     setMenu({ group: g, x: r.right, y: r.bottom });
   };
 
-  return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      {/* HEADER */}
-      <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
-            Groups
-          </h1>
-          <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
-            Manage community groups for the mobile app.
-          </p>
-        </div>
+  const activeMembers = members.filter((m) => m.status === "active");
+  const blockedMembers = members.filter((m) => m.status === "blocked");
 
-        <button
-          onClick={() => {
-            setAdding(true);
-            setEditing(null);
-            setForm({ name: "", description: "", allowedGender: "" });
-            setFile(null);
-            setError("");
-          }}
-          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white sm:self-auto sm:px-5 sm:text-base"
-        >
-          + Create Group
-        </button>
-      </div>
+  return (
+    <div>
+      <PageHeader
+        title="Groups"
+        description="Manage community groups for the mobile app."
+        actions={
+          <Button
+            variant="outline"
+            icon={Plus}
+            onClick={() => {
+              setAdding(true);
+              setEditing(null);
+              setForm({ name: "", description: "", allowedGender: "" });
+              setFile(null);
+              setError("");
+            }}
+          >
+            Create Group
+          </Button>
+        }
+      />
+
+      {error && !adding && !editing && (
+        <Alert className="mb-6" onDismiss={() => setError("")}>
+          {error}
+        </Alert>
+      )}
 
       {/* GLOBAL PAUSE-ALL */}
-      <div
-        className={`mb-6 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
-          pauseAll
-            ? "border-red-500/60 bg-red-500/10"
-            : "border-[#ff7a59]/40 bg-[#0a0a0a]"
-        }`}
-      >
-        <div>
-          <p className="text-base font-semibold text-white">
-            Pause all messaging
-          </p>
-          <p className="text-sm text-[#e8dcc7]/70">
-            Stops new messages in <b>every group and direct chat</b> until you
-            turn it back on.
-          </p>
-        </div>
-        <button
-          onClick={togglePauseAll}
-          disabled={pauseAllBusy}
-          className="inline-flex items-center gap-3 self-start disabled:opacity-50"
-          aria-pressed={pauseAll}
-        >
-          <span
-            className={`relative h-7 w-12 rounded-full transition ${
-              pauseAll ? "bg-red-500" : "bg-white/20"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-6 w-6 rounded-full bg-white transition-all ${
-                pauseAll ? "left-[22px]" : "left-0.5"
-              }`}
+      <Card className="mb-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-[#f4ead7]">Pause all messaging</h2>
+            <p className="mt-1 text-sm text-[#f4ead7]/60">
+              Stops new messages in{" "}
+              <span className="font-semibold text-[#f4ead7]">every group and direct chat</span>{" "}
+              until you turn it back on.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-3">
+            <Badge tone={pauseAllBusy ? "dark" : pauseAll ? "red" : "green"}>
+              {pauseAllBusy ? "Saving…" : pauseAll ? "Paused" : "Active"}
+            </Badge>
+            <Switch
+              tone="dark"
+              checked={pauseAll}
+              onChange={() => togglePauseAll()}
+              disabled={pauseAllBusy}
+              label="Pause all messaging"
             />
-          </span>
-          <span className="text-sm font-semibold text-white">
-            {pauseAllBusy ? "Saving…" : pauseAll ? "Paused" : "Active"}
-          </span>
-        </button>
-      </div>
+          </div>
+        </div>
+      </Card>
 
       {/* TABLE */}
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
-        <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
-          All Groups ({groups.length})
-        </h2>
-
-        {loading ? (
-          <p className="text-[#f3ead7]">Loading...</p>
-        ) : (
+      <SectionHeading
+        title={
           <>
-            <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full min-w-[800px] text-left">
-                <thead className="bg-[#ece2cb] text-black">
-                  <tr>
-                    <th className="p-3">Name</th>
-                    <th className="p-3">Description</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Members</th>
-                    <th className="p-3">Created</th>
-                    <th className="p-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {paginated.map((g) => (
-                    <tr
-                      key={g.id}
-                      className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
-                    >
-                      <td className="p-3 font-semibold">{g.name}</td>
-                      <td className="p-3 text-sm max-w-xs truncate">
-                        {g.description || "-"}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                              g.status === "active"
-                                ? "bg-green-500/20 text-green-700"
-                                : "bg-red-500/20 text-red-600"
-                            }`}
-                          >
-                            {g.status === "active" ? "Active" : "Inactive"}
-                          </span>
-                          {g.messagingPaused && (
-                            <span className="rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-bold uppercase text-amber-700">
-                              Msgs paused
-                            </span>
-                          )}
-                          {g.featuredListings.length > 0 && (
-                            <span className="rounded-full bg-[#ff7a59]/20 px-2 py-1 text-[10px] font-bold uppercase text-[#c2410c]">
-                              {g.featuredListings.length} listing
-                              {g.featuredListings.length === 1 ? "" : "s"}
-                            </span>
-                          )}
-                          {g.allowedGender && (
-                            <span className="rounded-full bg-purple-500/20 px-2 py-1 text-[10px] font-bold uppercase text-purple-700">
-                              {g.allowedGender} only
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-3 text-sm">{g.memberCount || 0}</td>
-                      <td className="p-3 text-black/60">
-                        {g.createdAt?.toDate
-                          ? g.createdAt.toDate().toLocaleDateString()
-                          : "-"}
-                      </td>
-
-                      <td className="p-3 text-right">
-                        <div className="flex items-center gap-2 justify-end">
-                          <button
-                            onClick={() => openEdit(g)}
-                            className="rounded-lg bg-[#ff7a59] px-3 py-1 text-white text-xs"
-                          >
-                            Edit
-                          </button>
-
-                          {/* 3-DOT MENU */}
-                          <button
-                            onClick={(e) => openMenu(e, g)}
-                            aria-label="More actions"
-                            className="rounded-lg border border-black/20 px-2 py-1 text-black hover:bg-black/5"
-                          >
-                            <span className="text-lg leading-none">⋮</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* PAGINATION */}
-            <div className="mt-8 flex flex-col md:flex-row justify-between items-center gap-4 text-[#f3ead7]">
-              <p className="text-sm text-[#f3ead7]/70">
-                Showing {(page - 1) * perPage + 1}–
-                {Math.min(page * perPage, groups.length)} of {groups.length}
-              </p>
-
-              <div className="flex gap-2">
-                <button
-                  disabled={page === 1}
-                  onClick={() => setPage(page - 1)}
-                  className="px-3 py-1 border border-white/10 rounded-lg disabled:opacity-30"
-                >
-                  Prev
-                </button>
-
-                {Array.from({ length: totalPages }).map((_, i) => {
-                  const p = i + 1;
-                  if (p !== 1 && p !== totalPages && Math.abs(p - page) > 1)
-                    return null;
-                  return (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p)}
-                      className={`px-3 py-1 rounded-lg ${
-                        page === p
-                          ? "bg-[#ff7a59] text-white"
-                          : "border border-white/10"
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  );
-                })}
-
-                <button
-                  disabled={page === totalPages}
-                  onClick={() => setPage(page + 1)}
-                  className="px-3 py-1 border border-white/10 rounded-lg disabled:opacity-30"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+            All Groups <span className="font-normal text-[#f4ead7]/50">({groups.length})</span>
           </>
-        )}
-      </section>
+        }
+      />
+
+      {loading ? (
+        <LoadingState label="Loading groups…" />
+      ) : groups.length === 0 ? (
+        <EmptyState icon={UsersRound} title="No groups yet." />
+      ) : (
+        <div className={table.wrap}>
+          <table className={`${table.table} min-w-[800px]`}>
+            <thead className={table.thead}>
+              <tr>
+                <th className={table.th}>Name</th>
+                <th className={table.th}>Description</th>
+                <th className={table.th}>Status</th>
+                <th className={table.th}>Members</th>
+                <th className={table.th}>Created</th>
+                <th className={`${table.th} text-right`}>Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {paginated.map((g) => (
+                <tr key={g.id} className={table.row}>
+                  <td className={`${table.td} font-semibold`}>{g.name}</td>
+                  <td className={table.td}>
+                    <p className="max-w-xs truncate text-black/70" title={g.description || undefined}>
+                      {g.description || "—"}
+                    </p>
+                  </td>
+                  <td className={table.td}>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone={g.status === "active" ? "green" : "red"}>
+                        {g.status === "active" ? "Active" : "Inactive"}
+                      </Badge>
+                      {g.messagingPaused && <Badge tone="amber">Msgs paused</Badge>}
+                      {g.featuredListings.length > 0 && (
+                        <Badge tone="blue">
+                          {g.featuredListings.length} listing
+                          {g.featuredListings.length === 1 ? "" : "s"}
+                        </Badge>
+                      )}
+                      {g.allowedGender && <Badge tone="purple">{g.allowedGender} only</Badge>}
+                    </div>
+                  </td>
+                  <td className={`${table.td} tabular-nums`}>{g.memberCount || 0}</td>
+                  <td className={`${table.td} whitespace-nowrap text-black/60`}>
+                    {g.createdAt?.toDate ? g.createdAt.toDate().toLocaleDateString() : "—"}
+                  </td>
+
+                  <td className={table.td}>
+                    <div className={table.actions}>
+                      <Button size="sm" onClick={() => openEdit(g)}>
+                        Edit
+                      </Button>
+
+                      {/* 3-DOT MENU */}
+                      <Button
+                        size="sm"
+                        variant="light"
+                        icon={MoreVertical}
+                        onClick={(e) => openMenu(e, g)}
+                        aria-label="More actions"
+                        aria-haspopup="menu"
+                        aria-expanded={menu?.group.id === g.id}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!loading && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          total={groups.length}
+          perPage={perPage}
+        />
+      )}
 
       {/* 3-DOT ACTION MENU (fixed overlay, won't be clipped by the table) */}
       {menu && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />
           <div
-            className="fixed z-50 w-52 overflow-hidden rounded-xl border border-black/10 bg-white py-1 text-sm text-black shadow-xl"
+            role="menu"
+            className="fixed z-50 w-52 overflow-hidden rounded-xl border border-black/10 bg-[#f5ecd7] py-1 text-sm text-black shadow-2xl"
             style={{ top: menu.y + 6, left: Math.max(8, menu.x - 208) }}
           >
             <MenuItem
+              icon={menu.group.messagingPaused ? Play : Pause}
               onClick={() => {
                 toggleGroupPause(menu.group);
                 setMenu(null);
               }}
             >
-              {menu.group.messagingPaused
-                ? "▶  Resume messages"
-                : "⏸  Pause messages"}
+              {menu.group.messagingPaused ? "Resume messages" : "Pause messages"}
             </MenuItem>
             <MenuItem
+              icon={Plus}
               onClick={() => {
                 setListingFor(menu.group);
                 setMenu(null);
               }}
             >
-              ＋  Add listing
+              Add listing
               {menu.group.featuredListings.length > 0
                 ? ` (${menu.group.featuredListings.length}/${MAX_FEATURED})`
                 : ""}
             </MenuItem>
             <div className="my-1 border-t border-black/10" />
             <MenuItem
+              icon={Power}
               onClick={() => {
                 toggleStatus(menu.group);
                 setMenu(null);
@@ -821,6 +799,7 @@ export default function Page() {
               {menu.group.status === "active" ? "Deactivate" : "Activate"}
             </MenuItem>
             <MenuItem
+              icon={Users}
               onClick={() => {
                 openMembers(menu.group);
                 setMenu(null);
@@ -829,6 +808,7 @@ export default function Page() {
               Members
             </MenuItem>
             <MenuItem
+              icon={Trash2}
               danger
               onClick={() => {
                 setDeleting(menu.group);
@@ -846,118 +826,113 @@ export default function Page() {
         <Modal
           title={editing ? "Edit Group" : "Create Group"}
           onClose={closeModal}
+          footer={
+            <>
+              <Button variant="light" onClick={closeModal}>
+                Cancel
+              </Button>
+              <Button onClick={editing ? handleEdit : handleAdd} loading={saveLoading}>
+                {saveLoading ? "Saving…" : "Save Group"}
+              </Button>
+            </>
+          }
         >
           {error && (
-            <p className="mb-4 p-3 bg-red-500/20 text-red-400 rounded-lg text-sm">
+            <Alert surface="light" className="mb-2">
               {error}
-            </p>
+            </Alert>
           )}
 
-          <div className="space-y-4">
-            <Input
-              label="Group Name *"
+          <Field label="Group Name *">
+            <TextInput
               value={form.name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setForm({ ...form, name: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
               placeholder="Enter group name"
             />
+          </Field>
 
-            <Textarea
-              label="Description"
+          <Field label="Description">
+            <TextArea
+              rows={3}
               value={form.description}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                setForm({ ...form, description: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder="Enter group description (optional)"
             />
+          </Field>
 
-            <div>
-              <label className="block text-sm font-semibold text-black mb-2">
-                Restrict to gender
-              </label>
-              <select
-                value={form.allowedGender}
-                onChange={(e) =>
-                  setForm({ ...form, allowedGender: e.target.value })
-                }
-                className="w-full rounded-lg border border-black/20 bg-white px-3 py-2 text-black"
-              >
-                <option value="">No restriction (everyone)</option>
-                <option value="Female">Female only</option>
-                <option value="Male">Male only</option>
-              </select>
-              <p className="mt-1 text-xs text-black/50">
-                Restricted groups are hidden from users of any other gender in
-                the mobile app.
-              </p>
-            </div>
+          <Field
+            label="Restrict to gender"
+            hint="Restricted groups are hidden from users of any other gender in the mobile app."
+          >
+            <SelectInput
+              value={form.allowedGender}
+              onChange={(e) => setForm({ ...form, allowedGender: e.target.value })}
+            >
+              <option value="">No restriction (everyone)</option>
+              <option value="Female">Female only</option>
+              <option value="Male">Male only</option>
+            </SelectInput>
+          </Field>
 
-            <div>
-              <label className="block text-sm font-semibold text-black mb-2">
-                Group Image (optional)
-              </label>
-              {(file || oldImage) && (
-                <div className="mb-3 relative w-20 h-20">
+          <Field label="Group Image (optional)">
+            <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-black/10 bg-white/50 p-4">
+              {file || oldImage ? (
+                <div className="relative h-20 w-20 shrink-0">
                   <img
                     src={file ? URL.createObjectURL(file) : oldImage}
                     alt="preview"
-                    className="w-full h-full object-cover rounded-lg"
+                    className="h-full w-full rounded-xl border border-black/10 object-cover"
                   />
                   <button
+                    type="button"
                     onClick={() => setFile(null)}
-                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
+                    aria-label="Remove image"
+                    className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white shadow transition hover:bg-red-600"
                   >
-                    ✕
+                    <X className="h-3 w-3" />
                   </button>
                 </div>
+              ) : (
+                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-dashed border-black/20 bg-black/5 text-xs text-black/40">
+                  No image
+                </div>
               )}
-              <label className="block cursor-pointer">
+              <label className={cx(buttonClass("outline"), "cursor-pointer")}>
+                <ImagePlus className="h-4 w-4" aria-hidden />
+                Choose Image
                 <input
                   type="file"
                   accept="image/*"
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                   className="hidden"
                 />
-                <span className="inline-block px-4 py-2 bg-[#ff7a59] text-white rounded-lg text-sm">
-                  Choose Image
-                </span>
               </label>
             </div>
-          </div>
-
-          <button
-            onClick={editing ? handleEdit : handleAdd}
-            disabled={saveLoading}
-            className="mt-6 w-full bg-[#ff7a59] text-white py-3 rounded-xl font-semibold disabled:opacity-50"
-          >
-            {saveLoading ? "Saving..." : "Save Group"}
-          </button>
+          </Field>
         </Modal>
       )}
 
       {/* DELETE MODAL */}
       {deleting && (
-        <Modal title="Delete Group" onClose={() => setDeleting(null)}>
-          <p className="text-black mb-6">
-            Are you sure you want to delete <b>{deleting.name}</b>? This action
-            cannot be undone.
+        <Modal
+          title="Delete Group"
+          size="sm"
+          onClose={() => setDeleting(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger-solid" onClick={confirmDelete} loading={deleteLoading}>
+                {deleteLoading ? "Deleting…" : "Delete"}
+              </Button>
+            </>
+          }
+        >
+          <p>
+            Are you sure you want to delete <span className="font-semibold">{deleting.name}</span>?
+            This action cannot be undone.
           </p>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setDeleting(null)}
-              className="flex-1 px-4 py-2 border border-black rounded-lg text-black"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDelete}
-              disabled={deleteLoading}
-              className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg disabled:opacity-50"
-            >
-              {deleteLoading ? "Deleting..." : "Delete"}
-            </button>
-          </div>
         </Modal>
       )}
 
@@ -971,88 +946,73 @@ export default function Page() {
           }}
         >
           {members.length === 0 ? (
-            <p className="text-black text-center py-6">No members yet</p>
+            <p className="py-6 text-center text-sm text-black/60">No members yet</p>
           ) : (
-            <div className="max-h-[28rem] overflow-y-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="border-b bg-[#efe5cf]">
-                    <th className="p-2">Name</th>
-                    <th className="p-2">Email</th>
-                    <th className="p-2">Joined</th>
-                    <th className="p-2 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {members
-                    .filter((m) => m.status === "active")
-                    .map((m) => (
-                      <tr key={m.id} className="border-b">
-                        <td className="p-2 font-semibold">{m.name}</td>
-                        <td className="p-2 text-xs">{m.email}</td>
-                        <td className="p-2 text-xs">
-                          {m.joinedAt?.toDate
-                            ? m.joinedAt.toDate().toLocaleDateString()
-                            : "-"}
+            <>
+              <div className="overflow-x-auto rounded-xl border border-black/10">
+                <table className={`${table.table} min-w-[520px]`}>
+                  <thead className={table.thead}>
+                    <tr>
+                      <th className={table.th}>Name</th>
+                      <th className={table.th}>Email</th>
+                      <th className={table.th}>Joined</th>
+                      <th className={`${table.th} text-right`}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeMembers.map((m) => (
+                      <tr key={m.id} className={table.row}>
+                        <td className={`${table.td} font-semibold`}>{m.name}</td>
+                        <td className={`${table.td} text-xs text-black/70`}>{m.email}</td>
+                        <td className={`${table.td} whitespace-nowrap text-xs text-black/60`}>
+                          {m.joinedAt?.toDate ? m.joinedAt.toDate().toLocaleDateString() : "—"}
                         </td>
-                        <td className="p-2 text-right whitespace-nowrap">
-                          <button
-                            onClick={() => removeMember(m.id)}
-                            className="text-red-600 text-xs hover:underline"
-                          >
-                            Remove
-                          </button>
-                          <button
-                            onClick={() => blockMember(m)}
-                            className="ml-3 text-red-800 text-xs font-semibold hover:underline"
-                          >
-                            Block
-                          </button>
+                        <td className={table.td}>
+                          <div className={table.actions}>
+                            <Button size="sm" variant="danger" onClick={() => removeMember(m.id)}>
+                              Remove
+                            </Button>
+                            <Button size="sm" variant="warning" onClick={() => blockMember(m)}>
+                              Block
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}
-                </tbody>
-              </table>
+                  </tbody>
+                </table>
+              </div>
 
-              {members.some((m) => m.status === "blocked") && (
+              {blockedMembers.length > 0 && (
                 <>
-                  <h4 className="mt-5 mb-2 text-sm font-bold uppercase tracking-wide text-black/60">
-                    Blocked from this group
-                  </h4>
-                  <table className="w-full text-left text-sm">
-                    <tbody>
-                      {members
-                        .filter((m) => m.status === "blocked")
-                        .map((m) => (
-                          <tr key={m.id} className="border-b">
-                            <td className="p-2 font-semibold">{m.name || m.userId}</td>
-                            <td className="p-2 text-xs text-black/60">
+                  <FormSection>Blocked from this group</FormSection>
+                  <div className="mt-3 overflow-x-auto rounded-xl border border-black/10">
+                    <table className={`${table.table} min-w-[520px]`}>
+                      <tbody>
+                        {blockedMembers.map((m) => (
+                          <tr key={m.id} className={table.row}>
+                            <td className={`${table.td} font-semibold`}>{m.name || m.userId}</td>
+                            <td className={`${table.td} text-xs text-black/60`}>
                               {m.blockReason || "No reason given"}
                             </td>
-                            <td className="p-2 text-xs">
-                              {m.blockState === "archived"
-                                ? "Content hidden"
-                                : m.blockState === "failed"
-                                  ? "Hiding failed"
-                                  : m.blockState
-                                    ? "Hiding content…"
-                                    : "Waiting…"}
+                            <td className={table.td}>
+                              <BlockStateBadge state={m.blockState} />
                             </td>
-                            <td className="p-2 text-right">
-                              <button
-                                onClick={() => unblockMember(m)}
-                                className="text-green-800 text-xs font-semibold hover:underline"
-                              >
-                                Unblock
-                              </button>
+                            <td className={table.td}>
+                              <div className={table.actions}>
+                                <Button size="sm" variant="success" onClick={() => unblockMember(m)}>
+                                  Unblock
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
-                    </tbody>
-                  </table>
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               )}
-            </div>
+            </>
           )}
         </Modal>
       )}
@@ -1072,24 +1032,43 @@ export default function Page() {
   );
 }
 
+/* Progress of hiding a blocked member's content (Cloud Function). */
+function BlockStateBadge({ state }: { state?: string }) {
+  if (state === "archived") return <Badge tone="green">Content hidden</Badge>;
+  if (state === "failed") return <Badge tone="red">Hiding failed</Badge>;
+  if (state) return <Badge tone="amber">Hiding content…</Badge>;
+  return <Badge>Waiting…</Badge>;
+}
+
 /* MENU ITEM */
 function MenuItem({
   children,
   onClick,
+  icon: Icon,
   danger = false,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   onClick: () => void;
+  icon?: LucideIcon;
   danger?: boolean;
 }) {
   return (
     <button
+      type="button"
+      role="menuitem"
       onClick={onClick}
-      className={`block w-full px-4 py-2 text-left hover:bg-black/5 ${
-        danger ? "text-red-600 font-semibold" : "text-black"
-      }`}
+      className={cx(
+        "flex w-full items-center gap-2.5 px-4 py-2 text-left transition hover:bg-black/5",
+        danger ? "font-semibold text-red-600" : "text-black",
+      )}
     >
-      {children}
+      {Icon && (
+        <Icon
+          className={cx("h-4 w-4 shrink-0", danger ? "text-red-500" : "text-black/50")}
+          aria-hidden
+        />
+      )}
+      <span className="min-w-0">{children}</span>
     </button>
   );
 }
@@ -1164,117 +1143,92 @@ function ListingPickerModal({
   };
 
   return (
-    <Modal title={`Listings for ${group.name}`} onClose={onClose}>
-      <p className="mb-3 text-sm text-black/70">
+    <Modal
+      title={`Listings for ${group.name}`}
+      size="md"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="light" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} loading={saving}>
+            {saving ? "Saving…" : "Save listings"}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-black/70">
         Pick up to {MAX_FEATURED} listings to feature in this group&apos;s chat.
-        Selected: <b>{selected.length}/{MAX_FEATURED}</b>
+        Selected:{" "}
+        <span className="font-semibold text-black">
+          {selected.length}/{MAX_FEATURED}
+        </span>
       </p>
 
-      <input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search listings…"
-        className="mb-3 w-full rounded-lg border border-black/20 px-3 py-2 text-sm text-black placeholder-black/40"
-      />
+      <div className="relative mt-4">
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-black/40"
+          aria-hidden
+        />
+        <TextInput
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search listings…"
+          className="pl-10"
+        />
+      </div>
 
       {loading ? (
-        <p className="py-6 text-center text-black/60">Loading listings…</p>
+        <p className="flex items-center justify-center gap-2 py-6 text-sm text-black/60">
+          <Spinner className="h-4 w-4" />
+          Loading listings…
+        </p>
       ) : (
-        <div className="max-h-80 space-y-2 overflow-y-auto">
+        <div className="mt-3 max-h-80 space-y-2 overflow-y-auto">
           {filtered.map((l) => {
             const sel = isSelected(l.id);
             const disabled = !sel && selected.length >= MAX_FEATURED;
             return (
               <button
                 key={l.id}
+                type="button"
                 onClick={() => toggle(l)}
                 disabled={disabled}
-                className={`flex w-full items-center gap-3 rounded-lg border p-2 text-left transition ${
+                aria-pressed={sel}
+                className={cx(
+                  "flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition",
                   sel
                     ? "border-[#ff7a59] bg-[#ff7a59]/10"
                     : disabled
-                    ? "border-black/10 opacity-40"
-                    : "border-black/10 hover:bg-black/5"
-                }`}
+                      ? "cursor-not-allowed border-black/10 bg-white/30 opacity-40"
+                      : "border-black/10 bg-white/50 hover:border-black/20 hover:bg-white",
+                )}
               >
                 {l.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={l.image}
                     alt=""
-                    className="h-10 w-10 rounded-md object-cover"
+                    className="h-10 w-10 shrink-0 rounded-lg border border-black/10 object-cover"
                   />
                 ) : (
-                  <div className="h-10 w-10 rounded-md bg-black/10" />
+                  <div className="h-10 w-10 shrink-0 rounded-lg border border-black/10 bg-black/5" />
                 )}
-                <span className="flex-1 text-sm font-medium text-black">
-                  {l.name}
-                </span>
-                {sel && <span className="text-[#ff7a59]">✓</span>}
+                <span className="min-w-0 flex-1 text-sm font-medium text-black">{l.name}</span>
+                {sel && (
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#ff7a59] text-white">
+                    <Check className="h-3.5 w-3.5" aria-hidden />
+                  </span>
+                )}
               </button>
             );
           })}
           {filtered.length === 0 && (
-            <p className="py-6 text-center text-black/50">No listings found.</p>
+            <p className="py-6 text-center text-sm text-black/50">No listings found.</p>
           )}
         </div>
       )}
-
-      <button
-        onClick={save}
-        disabled={saving}
-        className="mt-6 w-full rounded-xl bg-[#ff7a59] py-3 font-semibold text-white disabled:opacity-50"
-      >
-        {saving ? "Saving…" : "Save listings"}
-      </button>
     </Modal>
-  );
-}
-
-/* MODAL */
-function Modal({ children, title, onClose }: any) {
-  return (
-    <div className="fixed inset-0 bg-black/70 flex justify-center items-center z-50 p-4">
-      <div className="bg-[#e8dcc7] p-6 rounded-3xl w-[90%] max-w-lg max-h-[90vh] overflow-y-auto text-black">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose} className="text-2xl">
-            ✕
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/* INPUT */
-function Input({ label, ...props }: { label: string; [key: string]: any }) {
-  return (
-    <div>
-      <label className="block text-sm font-semibold text-black mb-2">
-        {label}
-      </label>
-      <input
-        {...props}
-        className="w-full px-4 py-2 border border-black/20 rounded-lg text-black placeholder-black/50"
-      />
-    </div>
-  );
-}
-
-/* TEXTAREA */
-function Textarea({ label, ...props }: { label: string; [key: string]: any }) {
-  return (
-    <div>
-      <label className="block text-sm font-semibold text-black mb-2">
-        {label}
-      </label>
-      <textarea
-        {...props}
-        rows={3}
-        className="w-full px-4 py-2 border border-black/20 rounded-lg text-black placeholder-black/50"
-      />
-    </div>
   );
 }

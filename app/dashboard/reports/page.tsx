@@ -1,6 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Ban,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Flag,
+  MessageSquare,
+  MessagesSquare,
+  Search,
+  Trash2,
+  UserRound,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import {
   collection,
   doc,
@@ -23,6 +37,23 @@ import {
   setAppBlock,
   type AppBlockStatus,
 } from "@/lib/userBlocks";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Segmented,
+  Spinner,
+  TextArea,
+  Toolbar,
+  cx,
+  filterControlClass,
+  type BadgeTone,
+} from "@/components/ui";
 
 type ReportStatus = "pending" | "reviewed" | "dismissed" | "action_taken";
 type ReportSource = "direct_message" | "group_chat" | "profile" | string;
@@ -546,51 +577,37 @@ export default function Page() {
   const counts = useMemo(() => items.length, [items]);
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      <div className="mb-6 sm:mb-8">
-        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
-          Report Board
-        </h1>
-        <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
-          Review user reports from chats and profiles. Take moderation action
-          when needed.
-        </p>
-      </div>
+    <div>
+      <PageHeader
+        title="Report Board"
+        description="Review user reports from chats and profiles. Take moderation action when needed."
+      />
 
       {/* USER LOOKUP — search any user to see how many times they were reported */}
-      <section className="mb-6 rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
-        <h2 className="mb-1 text-lg font-bold text-[#ff7a59] sm:text-xl">
-          Look up a user
-        </h2>
-        <p className="mb-4 text-sm text-[#e8dcc7]/80">
-          Search any reported user by name or UID to see how many times they’ve
-          been reported.
-        </p>
-
+      <Card
+        className="mb-6"
+        title="Look up a user"
+        description="Search any reported user by name or UID to see how many times they’ve been reported."
+      >
         <div className="relative max-w-xl">
-          <svg
-            className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#ff7a59]"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <circle cx="11" cy="11" r="8" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-white/40"
+            aria-hidden
+          />
           <input
             value={userSearch}
             onChange={(e) => setUserSearch(e.target.value)}
             placeholder="Search by name or UID…"
-            className="w-full rounded-xl border border-white/15 bg-[#0a0a0a] py-3 pl-11 pr-10 text-white outline-none placeholder:text-white/40 focus:border-[#ff7a59]"
+            className={cx(filterControlClass, "w-full pr-10 pl-9")}
           />
           {userSearch && (
             <button
+              type="button"
               onClick={() => setUserSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-white/50 transition hover:text-white"
               aria-label="Clear search"
             >
-              ✕
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -598,9 +615,12 @@ export default function Page() {
         {userSearch.trim() && (
           <div className="mt-4 space-y-3">
             {allLoading ? (
-              <p className="text-[#f3ead7]/70">Loading reports…</p>
+              <p className="flex items-center gap-2 text-sm text-[#f4ead7]/60">
+                <Spinner className="h-4 w-4" />
+                Loading reports…
+              </p>
             ) : userMatches.length === 0 ? (
-              <p className="text-[#f3ead7]/70">
+              <p className="text-sm text-[#f4ead7]/60">
                 No reported user matches “{userSearch.trim()}”.
               </p>
             ) : (
@@ -609,36 +629,30 @@ export default function Page() {
                 return (
                   <div
                     key={u.uid}
-                    className="rounded-2xl border border-white/10 bg-[#ece2cb] text-black"
+                    className="overflow-hidden rounded-2xl border border-black/5 bg-[#ece2cb] text-black"
                   >
                     <button
                       type="button"
                       onClick={() => setExpandedUid(open ? null : u.uid)}
-                      className="flex w-full items-center justify-between gap-3 p-4 text-left"
+                      aria-expanded={open}
+                      className="group flex w-full items-start justify-between gap-3 p-4 text-left"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-base font-semibold">
-                          {u.name || "Unknown user"}
-                        </p>
-                        <p className="truncate text-xs text-black/60">
-                          UID: {u.uid}
-                        </p>
-                        <p className="mt-1 text-xs text-black/60">
+                        <p className="truncate font-semibold">{u.name || "Unknown user"}</p>
+                        <p className="truncate text-xs text-black/55">UID: {u.uid}</p>
+                        <p className="mt-1 text-xs text-black/55">
                           Last reported: {formatTs(u.lastReportedAt)}
                         </p>
                       </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            u.count > 1
-                              ? "bg-[#c0392b] text-white"
-                              : "bg-black/10 text-black/70"
-                          }`}
-                        >
-                          Reported {u.count}×
-                        </span>
-                        <span className="text-[11px] text-black/50">
-                          {open ? "Hide reports ▲" : "Show reports ▼"}
+                      <div className="flex shrink-0 flex-col items-end gap-1.5">
+                        <Badge tone={u.count > 1 ? "red" : "neutral"}>Reported {u.count}×</Badge>
+                        <span className="inline-flex items-center gap-1 text-[11px] text-black/50 transition group-hover:text-black">
+                          {open ? "Hide reports" : "Show reports"}
+                          {open ? (
+                            <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                          )}
                         </span>
                       </div>
                     </button>
@@ -646,18 +660,15 @@ export default function Page() {
                     <div className="flex flex-wrap gap-1.5 px-4 pb-3">
                       {TABS.map((t) =>
                         u.statusCounts[t.value] > 0 ? (
-                          <span
-                            key={t.value}
-                            className="rounded-full bg-black/10 px-2.5 py-0.5 text-[11px] font-medium text-black/70"
-                          >
+                          <Badge key={t.value} tone={STATUS_TONE[t.value]}>
                             {t.label}: {u.statusCounts[t.value]}
-                          </span>
+                          </Badge>
                         ) : null,
                       )}
                     </div>
 
                     {open && (
-                      <div className="space-y-2 border-t border-black/10 p-4">
+                      <div className="space-y-2 border-t border-black/10 p-3 sm:p-4">
                         {u.reports.map((r) => (
                           <button
                             key={r.id}
@@ -666,28 +677,20 @@ export default function Page() {
                               setSelected(r);
                               setNote(r.moderatorNotes ?? "");
                             }}
-                            className="flex w-full items-center justify-between gap-3 rounded-lg bg-white/60 px-3 py-2 text-left transition hover:bg-white"
+                            className="flex w-full items-center justify-between gap-3 rounded-xl bg-white/60 px-3 py-2.5 text-left transition hover:bg-white"
                           >
                             <div className="min-w-0">
                               <p className="truncate text-sm">
-                                <span className="font-semibold">
-                                  {sourceLabel(r.source)}
-                                </span>{" "}
-                                · by {r.reporterName || r.reporterId || "Unknown"}
+                                <span className="font-semibold">{sourceLabel(r.source)}</span> · by{" "}
+                                {r.reporterName || r.reporterId || "Unknown"}
                               </p>
                               {r.reporterMessage && (
-                                <p className="truncate text-xs text-black/60">
-                                  {r.reporterMessage}
-                                </p>
+                                <p className="truncate text-xs text-black/60">{r.reporterMessage}</p>
                               )}
                             </div>
-                            <div className="shrink-0 text-right">
-                              <span className="block rounded-full bg-[#ff7a59]/20 px-2 py-0.5 text-[11px] font-semibold text-[#c0392b]">
-                                {r.status}
-                              </span>
-                              <span className="mt-0.5 block text-[11px] text-black/50">
-                                {formatTs(r.createdAt)}
-                              </span>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              <StatusBadge status={r.status} />
+                              <span className="text-[11px] text-black/50">{formatTs(r.createdAt)}</span>
                             </div>
                           </button>
                         ))}
@@ -699,88 +702,79 @@ export default function Page() {
             )}
           </div>
         )}
-      </section>
+      </Card>
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.value}
-            onClick={() => setTab(t.value)}
-            className={`rounded-xl px-5 py-2 text-sm font-semibold transition ${
-              tab === t.value
-                ? "bg-[#ff7a59] text-white"
-                : "border border-[#ff7a59]/40 text-[#e8dcc7] hover:bg-[#ff7a59]/20"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* STATUS TABS */}
+      <Toolbar>
+        <Segmented<Tab>
+          value={tab}
+          onChange={setTab}
+          options={TABS.map((t) => ({
+            value: t.value,
+            label: t.label,
+            count: t.value === tab && !loading ? counts : undefined,
+          }))}
+        />
+      </Toolbar>
 
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
-        <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
-          {TABS.find((t) => t.value === tab)?.label} ({counts})
-        </h2>
+      {/* REPORTS */}
+      {loading ? (
+        <LoadingState label="Loading reports…" />
+      ) : items.length === 0 ? (
+        <EmptyState icon={Flag} title="No reports in this tab." />
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {items.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => {
+                setSelected(r);
+                setNote(r.moderatorNotes ?? "");
+              }}
+              className="flex min-w-0 flex-col rounded-2xl border border-black/5 bg-[#ece2cb] p-4 text-left text-black transition hover:border-[#ff7a59]/60 hover:bg-[#f5ecd7] focus-visible:ring-2 focus-visible:ring-[#ff7a59]/50 focus-visible:outline-none sm:p-5"
+            >
+              <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                <SourceBadge source={r.source} />
+                <span className="text-xs text-black/55">{formatTs(r.createdAt)}</span>
+              </div>
 
-        {loading ? (
-          <p className="text-[#f3ead7]">Loading...</p>
-        ) : items.length === 0 ? (
-          <p className="text-[#f3ead7]/70">No reports in this tab.</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {items.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => {
-                  setSelected(r);
-                  setNote(r.moderatorNotes ?? "");
-                }}
-                className="rounded-2xl border border-white/10 bg-[#ece2cb] p-4 text-left text-black transition hover:border-[#ff7a59]"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="rounded-full bg-[#ff7a59]/20 px-3 py-1 text-xs font-semibold text-[#ff7a59]">
-                    {sourceLabel(r.source)}
-                  </span>
-                  <span className="text-xs text-black/60">
-                    {formatTs(r.createdAt)}
-                  </span>
+              <p className="mt-3 font-semibold wrap-break-word">
+                <span className="font-normal text-black/55">Reported:</span>{" "}
+                {r.reportedUserName || r.reportedUserId || "Unknown"}
+              </p>
+              <p className="text-sm wrap-break-word text-black/60">
+                By: {r.reporterName || r.reporterId || "Unknown"}
+              </p>
+
+              {r.reporterMessage && (
+                <div className="mt-3 w-full rounded-xl border-l-2 border-[#ff7a59] bg-white/55 px-3 py-2">
+                  <p className="text-[11px] font-semibold tracking-wide text-black/50 uppercase">
+                    Reason
+                  </p>
+                  <p className="line-clamp-3 text-sm wrap-break-word text-black/80">
+                    {r.reporterMessage}
+                  </p>
                 </div>
-                <p className="mt-3 text-base font-semibold">
-                  Reported:{" "}
-                  <span className="text-[#c0392b]">
-                    {r.reportedUserName || r.reportedUserId || "Unknown"}
-                  </span>
-                </p>
-                <p className="text-sm text-black/70">
-                  By: {r.reporterName || r.reporterId || "Unknown"}
-                </p>
-                {r.reporterMessage && (
-                  <div className="mt-3 rounded-lg border border-[#ff7a59]/40 bg-[#ff7a59]/10 p-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#c0392b]">
-                      Reason
-                    </p>
-                    <p className="line-clamp-3 text-sm text-black/80">
-                      {r.reporterMessage}
-                    </p>
-                  </div>
-                )}
-                {r.messageText && (
-                  <p className="mt-3 line-clamp-3 rounded-lg bg-black/5 p-2 text-sm italic text-black/80">
-                    “{r.messageText}”
-                  </p>
-                )}
-                {r.moderatorNotes && (
-                  <p className="mt-3 text-xs text-black/70">
-                    <b>Note:</b> {r.moderatorNotes}
-                  </p>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+              )}
 
+              {r.messageText && (
+                <p className="mt-3 line-clamp-3 w-full rounded-xl bg-black/5 px-3 py-2 text-sm wrap-break-word text-black/75 italic">
+                  “{r.messageText}”
+                </p>
+              )}
+
+              {r.moderatorNotes && (
+                <p className="mt-3 text-xs wrap-break-word text-black/60">
+                  <span className="font-semibold text-black/75">Note:</span> {r.moderatorNotes}
+                </p>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* REPORT DETAIL */}
       {selected && (
         <Modal
           title={`Report: ${selected.reportedUserName || "Unknown user"}`}
@@ -789,18 +783,107 @@ export default function Page() {
             setNote("");
             setShowTempBlock(false);
           }}
+          footer={
+            <>
+              {/* TEMP BLOCK DURATION PICKER — sits above the buttons so it
+                  opens next to the Temp Block button that toggles it. */}
+              {showTempBlock && !profile?.isBanned && (
+                <div className="w-full rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900">
+                  <p className="text-sm font-semibold">Temporarily block user</p>
+                  <p className="mt-0.5 text-xs text-amber-900/80">
+                    They can still view content but can’t send messages or post until the
+                    block expires. Pick a duration:
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {TEMP_BLOCK_OPTIONS.map((opt) => (
+                      <Button
+                        key={opt.label}
+                        size="sm"
+                        variant="warning"
+                        disabled={busy}
+                        onClick={() => tempBlockUser(selected, opt)}
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                    <Button
+                      size="sm"
+                      variant="light"
+                      disabled={busy}
+                      onClick={() => setShowTempBlock(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                variant="light"
+                disabled={busy}
+                onClick={() => setStatus(selected, "dismissed")}
+              >
+                Dismiss
+              </Button>
+              <Button disabled={busy} onClick={() => setStatus(selected, "reviewed")}>
+                Mark Reviewed
+              </Button>
+              {isTempBlocked(profile?.timeoutUntil ?? null) ? (
+                <Button
+                  variant="warning"
+                  disabled={busy}
+                  onClick={() => removeTempBlock(selected)}
+                >
+                  Remove Block
+                </Button>
+              ) : (
+                !profile?.isBanned && (
+                  <Button
+                    variant="light"
+                    icon={Clock}
+                    disabled={busy}
+                    onClick={() => setShowTempBlock((v) => !v)}
+                  >
+                    Temp Block
+                  </Button>
+                )
+              )}
+              {profile?.isBanned ? (
+                <Button
+                  variant="warning"
+                  disabled={
+                    busy ||
+                    profile.blockStatus === "blocking" ||
+                    profile.blockStatus === "restoring"
+                  }
+                  onClick={() => unbanUser(selected)}
+                >
+                  Unban User
+                </Button>
+              ) : (
+                <Button
+                  variant="danger-solid"
+                  icon={Ban}
+                  loading={busy}
+                  onClick={() => banUser(selected)}
+                >
+                  {busy ? "Working…" : "Ban User"}
+                </Button>
+              )}
+            </>
+          }
         >
-          <div className="space-y-5 text-sm text-black">
-            <section className="rounded-2xl bg-white/60 p-4">
-              <h3 className="mb-2 font-semibold text-[#ff7a59]">
-                Reported user
-              </h3>
+          <div className="space-y-4 text-sm">
+            <DetailSection title="Reported user">
               {profileLoading ? (
-                <p>Loading profile...</p>
+                <p className="flex items-center gap-2 text-black/60">
+                  <Spinner className="h-4 w-4" />
+                  Loading profile…
+                </p>
               ) : profile ? (
                 <div className="space-y-4">
                   <div className="flex gap-4">
-                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-black/10">
+                    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full border border-black/10 bg-black/5 sm:h-20 sm:w-20">
                       {profile.photoUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -809,54 +892,43 @@ export default function Page() {
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <div className="flex h-full items-center justify-center text-xs text-black/50">
+                        <div className="flex h-full items-center justify-center text-[10px] text-black/40">
                           No photo
                         </div>
                       )}
                     </div>
-                    <div className="flex-1">
-                      <p className="text-base font-semibold">
-                        {profile.displayName}
-                      </p>
-                      <p className="text-xs text-black/70">
-                        {[
-                          profile.age && `Age ${profile.age}`,
-                          profile.gender,
-                        ]
+                    <div className="min-w-0 flex-1">
+                      <p className="text-base font-semibold wrap-break-word">{profile.displayName}</p>
+                      <p className="text-xs text-black/60">
+                        {[profile.age && `Age ${profile.age}`, profile.gender]
                           .filter(Boolean)
                           .join(" · ") || "Age/gender not set"}
                       </p>
                       {profile.email && (
-                        <p className="text-xs text-black/60">{profile.email}</p>
+                        <p className="text-xs break-all text-black/60">{profile.email}</p>
                       )}
-                      <p className="break-all text-xs text-black/60">
+                      <p className="text-xs break-all text-black/50">
                         UID: {selected.reportedUserId}
                       </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`inline-block rounded-full px-3 py-1 text-xs font-semibold ${
-                            profile.reportCount > 1
-                              ? "bg-[#c0392b] text-white"
-                              : "bg-black/10 text-black/70"
-                          }`}
-                        >
-                          Reported {profile.reportCount}×
-                        </span>
-                        {profile.isBanned && profile.blockStatus && (
-                          <span className="inline-block rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white">
-                            {profile.blockStatus === "blocked"
-                              ? "Banned"
-                              : APP_BLOCK_LABEL[profile.blockStatus]}
-                          </span>
-                        )}
-                        {isTempBlocked(profile.timeoutUntil) && (
-                          <span className="inline-block rounded-full bg-amber-500 px-3 py-1 text-xs font-semibold text-white">
-                            Temp blocked until{" "}
-                            {profile.timeoutUntil!.toLocaleString()}
-                          </span>
-                        )}
-                      </div>
                     </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={profile.reportCount > 1 ? "red" : "neutral"}>
+                      Reported {profile.reportCount}×
+                    </Badge>
+                    {profile.isBanned && profile.blockStatus && (
+                      <Badge tone="red">
+                        {profile.blockStatus === "blocked"
+                          ? "Banned"
+                          : APP_BLOCK_LABEL[profile.blockStatus]}
+                      </Badge>
+                    )}
+                    {isTempBlocked(profile.timeoutUntil) && (
+                      <Badge tone="amber">
+                        Temp blocked until {profile.timeoutUntil!.toLocaleString()}
+                      </Badge>
+                    )}
                   </div>
 
                   {profile.photoUrls.length > 1 && (
@@ -867,7 +939,7 @@ export default function Page() {
                           href={url}
                           target="_blank"
                           rel="noreferrer"
-                          className="h-16 w-16 overflow-hidden rounded-lg bg-black/10"
+                          className="h-16 w-16 overflow-hidden rounded-lg border border-black/10 bg-black/5 transition hover:opacity-80"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -882,10 +954,10 @@ export default function Page() {
 
                   {profile.bio && (
                     <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-black/50">
+                      <p className="text-[11px] font-semibold tracking-wide text-black/50 uppercase">
                         Bio
                       </p>
-                      <p className="whitespace-pre-wrap text-sm text-black/80">
+                      <p className="mt-0.5 wrap-break-word whitespace-pre-wrap text-black/80">
                         {profile.bio}
                       </p>
                     </div>
@@ -894,68 +966,55 @@ export default function Page() {
               ) : (
                 <p className="text-black/60">No profile data.</p>
               )}
-            </section>
+            </DetailSection>
 
-            <section className="rounded-2xl bg-white/60 p-4">
-              <h3 className="mb-2 font-semibold text-[#ff7a59]">
-                Report details
-              </h3>
-              <p>
-                <b>Reporter:</b> {selected.reporterName || "Unknown"} (
-                <span className="break-all">{selected.reporterId}</span>)
-              </p>
-              <p>
-                <b>Source:</b> {sourceLabel(selected.source)}
-              </p>
-              {selected.conversationId && (
-                <p className="break-all">
-                  <b>Conversation:</b> {selected.conversationId}
-                </p>
-              )}
-              {selected.groupId && (
-                <p className="break-all">
-                  <b>Group:</b> {selected.groupId}
-                </p>
-              )}
-              <p>
-                <b>Reported at:</b> {formatTs(selected.createdAt)}
-              </p>
-              {selected.status !== "pending" && (
-                <>
-                  <p>
-                    <b>Status:</b> {selected.status}
-                  </p>
-                  <p>
-                    <b>Reviewed at:</b> {formatTs(selected.reviewedAt)}
-                  </p>
-                  {selected.reviewedBy && (
-                    <p className="break-all">
-                      <b>Reviewed by:</b> {selected.reviewedBy}
-                    </p>
-                  )}
-                </>
-              )}
-            </section>
+            <DetailSection title="Report details">
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5">
+                <DetailRow label="Reporter">
+                  {selected.reporterName || "Unknown"} (
+                  <span className="break-all">{selected.reporterId}</span>)
+                </DetailRow>
+                <DetailRow label="Source">{sourceLabel(selected.source)}</DetailRow>
+                {selected.conversationId && (
+                  <DetailRow label="Conversation" breakAll>
+                    {selected.conversationId}
+                  </DetailRow>
+                )}
+                {selected.groupId && (
+                  <DetailRow label="Group" breakAll>
+                    {selected.groupId}
+                  </DetailRow>
+                )}
+                <DetailRow label="Reported at">{formatTs(selected.createdAt)}</DetailRow>
+                {selected.status !== "pending" && (
+                  <>
+                    <DetailRow label="Status">
+                      <StatusBadge status={selected.status} />
+                    </DetailRow>
+                    <DetailRow label="Reviewed at">{formatTs(selected.reviewedAt)}</DetailRow>
+                    {selected.reviewedBy && (
+                      <DetailRow label="Reviewed by" breakAll>
+                        {selected.reviewedBy}
+                      </DetailRow>
+                    )}
+                  </>
+                )}
+              </dl>
+            </DetailSection>
 
-            <section className="rounded-2xl bg-white/60 p-4">
-              <h3 className="mb-2 font-semibold text-[#ff7a59]">
-                Reason from reporter
-              </h3>
+            <DetailSection title="Reason from reporter">
               {selected.reporterMessage ? (
-                <p className="whitespace-pre-wrap rounded-lg bg-[#ff7a59]/10 p-3 text-black/90">
+                <p className="rounded-xl border-l-2 border-[#ff7a59] bg-[#ff7a59]/10 px-3 py-2.5 wrap-break-word whitespace-pre-wrap text-black/90">
                   {selected.reporterMessage}
                 </p>
               ) : (
                 <p className="text-black/50">No message provided.</p>
               )}
-            </section>
+            </DetailSection>
 
             {selected.messageText && (
-              <section className="rounded-2xl bg-white/60 p-4">
-                <h3 className="mb-2 font-semibold text-[#ff7a59]">
-                  Reported message
-                </h3>
-                <p className="rounded-lg bg-black/5 p-3 italic">
+              <DetailSection title="Reported message">
+                <p className="rounded-xl bg-black/5 px-3 py-2.5 wrap-break-word italic">
                   “{selected.messageText}”
                 </p>
                 {selected.messageSentAt && (
@@ -964,123 +1023,33 @@ export default function Page() {
                   </p>
                 )}
                 {canDeleteMessage(selected) ? (
-                  <button
-                    disabled={busy}
+                  <Button
+                    size="sm"
+                    variant="danger-solid"
+                    icon={Trash2}
+                    loading={busy}
                     onClick={() => deleteMessage(selected)}
-                    className="mt-3 rounded-lg bg-[#c0392b] px-4 py-2 text-sm font-semibold text-white hover:bg-[#a93226] disabled:opacity-50"
+                    className="mt-3"
                   >
-                    {busy ? "Working..." : "Delete Message"}
-                  </button>
+                    {busy ? "Working…" : "Delete Message"}
+                  </Button>
                 ) : (
                   <p className="mt-3 text-xs text-black/50">
-                    This message can’t be deleted from here — the report didn’t
-                    record its message id.
+                    This message can’t be deleted from here — the report didn’t record its
+                    message id.
                   </p>
                 )}
-              </section>
+              </DetailSection>
             )}
 
-            <section className="rounded-2xl bg-white/60 p-4">
-              <h3 className="mb-2 font-semibold text-[#ff7a59]">
-                Moderator note
-              </h3>
-              <textarea
+            <Field label="Moderator note">
+              <TextArea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Optional note — recorded with this action."
-                className="w-full rounded-xl border border-black/20 bg-white p-3 outline-none focus:border-[#ff7a59]"
                 rows={3}
               />
-            </section>
-
-            {/* TEMP BLOCK DURATION PICKER */}
-            {showTempBlock && !profile?.isBanned && (
-              <section className="rounded-2xl border border-amber-500/50 bg-amber-50 p-4">
-                <h3 className="mb-1 font-semibold text-amber-800">
-                  Temporarily block user
-                </h3>
-                <p className="mb-3 text-xs text-amber-800/80">
-                  They can still view content but can’t send messages or post
-                  until the block expires. Pick a duration:
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {TEMP_BLOCK_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.label}
-                      disabled={busy}
-                      onClick={() => tempBlockUser(selected, opt)}
-                      className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                  <button
-                    disabled={busy}
-                    onClick={() => setShowTempBlock(false)}
-                    className="rounded-lg border border-amber-600/40 px-4 py-2 text-sm font-semibold text-amber-800 disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </section>
-            )}
-
-            <div className="flex flex-wrap justify-end gap-2 pt-2">
-              <button
-                disabled={busy}
-                onClick={() => setStatus(selected, "dismissed")}
-                className="rounded-lg border border-black/30 px-4 py-2 text-sm font-semibold disabled:opacity-50"
-              >
-                Dismiss
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => setStatus(selected, "reviewed")}
-                className="rounded-lg bg-[#1F2C34] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2A3942] disabled:opacity-50"
-              >
-                Mark Reviewed
-              </button>
-              {isTempBlocked(profile?.timeoutUntil ?? null) ? (
-                <button
-                  disabled={busy}
-                  onClick={() => removeTempBlock(selected)}
-                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-                >
-                  Remove Block
-                </button>
-              ) : (
-                !profile?.isBanned && (
-                  <button
-                    disabled={busy}
-                    onClick={() => setShowTempBlock((v) => !v)}
-                    className="rounded-lg border border-amber-600 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-600 hover:text-white disabled:opacity-50"
-                  >
-                    Temp Block
-                  </button>
-                )
-              )}
-              {profile?.isBanned ? (
-                <button
-                  disabled={
-                    busy ||
-                    profile.blockStatus === "blocking" ||
-                    profile.blockStatus === "restoring"
-                  }
-                  onClick={() => unbanUser(selected)}
-                  className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-                >
-                  Unban User
-                </button>
-              ) : (
-                <button
-                  disabled={busy}
-                  onClick={() => banUser(selected)}
-                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  {busy ? "Working..." : "Ban User"}
-                </button>
-              )}
-            </div>
+            </Field>
           </div>
         </Modal>
       )}
@@ -1088,18 +1057,58 @@ export default function Page() {
   );
 }
 
-function Modal({ children, title, onClose }: any) {
+/* Report status as a coloured pill, using the tab labels. */
+const STATUS_TONE: Record<ReportStatus, BadgeTone> = {
+  pending: "amber",
+  reviewed: "blue",
+  action_taken: "red",
+  dismissed: "neutral",
+};
+
+function StatusBadge({ status }: { status: ReportStatus }) {
+  const label = TABS.find((t) => t.value === status)?.label ?? status;
+  return <Badge tone={STATUS_TONE[status] ?? "neutral"}>{label}</Badge>;
+}
+
+const SOURCE_ICON: Record<string, LucideIcon> = {
+  direct_message: MessageSquare,
+  group_chat: MessagesSquare,
+  profile: UserRound,
+};
+
+function SourceBadge({ source }: { source: ReportSource }) {
+  const Icon = SOURCE_ICON[source] ?? Flag;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-[#e8dcc7] p-6">
-        <div className="mb-4 flex justify-between">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose} className="text-2xl">
-            ✕
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <Badge>
+      <Icon className="h-3 w-3" aria-hidden />
+      {sourceLabel(source)}
+    </Badge>
+  );
+}
+
+/* A titled block inside the report modal. */
+function DetailSection({ title, children }: { title: ReactNode; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-black/10 bg-white/50 p-4">
+      <h3 className="mb-3 text-xs font-bold tracking-wide text-black/55 uppercase">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function DetailRow({
+  label,
+  breakAll = false,
+  children,
+}: {
+  label: string;
+  breakAll?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <>
+      <dt className="text-black/55">{label}</dt>
+      <dd className={cx("min-w-0", breakAll && "break-all")}>{children}</dd>
+    </>
   );
 }

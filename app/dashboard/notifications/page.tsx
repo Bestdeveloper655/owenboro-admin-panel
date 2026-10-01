@@ -2,6 +2,22 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Bell,
+  Check,
+  CircleCheck,
+  CircleX,
+  ImageOff,
+  ImagePlus,
+  Plus,
+  Radio,
+  Send,
+  Trash2,
+  TriangleAlert,
+  Upload,
+  User,
+  type LucideIcon,
+} from "lucide-react";
+import {
   collection,
   getDocs,
   addDoc,
@@ -20,6 +36,25 @@ import {
 } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseServices";
 import { authedFetch } from "@/lib/authedFetch";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Pagination,
+  Spinner,
+  TextArea,
+  TextInput,
+  Toolbar,
+  buttonClass,
+  cx,
+  table,
+  type BadgeTone,
+} from "@/components/ui";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Types
@@ -582,29 +617,6 @@ const validateForm = () => {
       ? editing.image || ""
       : "";
 
-  const getStatusBadge = (item: NotificationItem) => {
-    const status = item.status || (item.sent ? "sent" : "draft");
-    switch (status) {
-      case "sent":     return "bg-green-100 text-green-700";
-      case "partial":  return "bg-orange-100 text-orange-700";
-      case "failed":   return "bg-red-100 text-red-700";
-      case "sending":  return "bg-blue-100 text-blue-700";
-      case "queued":   return "bg-purple-100 text-purple-700";
-      default:         return "bg-yellow-100 text-yellow-700";
-    }
-  };
-
-  const getDeliveryBadge = (item: NotificationItem) => {
-    if (item.deliveryMode === "token")
-      return "bg-indigo-100 text-indigo-700";
-    return "bg-teal-100 text-teal-700";
-  };
-
-  const getDeliveryLabel = (item: NotificationItem) => {
-    if (item.deliveryMode === "token") return "👤 Targeted";
-    return "📡 All Users";
-  };
-
 const selectedUsers = users.filter((u) =>
   form.targetUserIds.includes(u.id)
 );
@@ -613,243 +625,184 @@ const selectedUsers = users.filter((u) =>
   //  RENDER
   // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="px-4 pt-6 pb-10 md:px-8">
-      {/* Header */}
-      <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h1 className="text-4xl font-bold tracking-tight text-[#ff7a59] md:text-5xl">
-            Notifications
-          </h1>
-          <p className="mt-2 text-lg font-medium text-[#e8dcc7] md:text-xl">
-            Broadcast to all users via topic or target a specific user.
-          </p>
-        </div>
-        <button
-          onClick={openAddModal}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#ff7a59] px-5 text-sm font-semibold text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white"
-        >
-          <span>＋</span> Create Notification
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Notifications"
+        description="Broadcast to all users via topic or target a specific user."
+        actions={
+          <Button variant="outline" icon={Plus} onClick={openAddModal}>
+            Create Notification
+          </Button>
+        }
+      />
 
       {/* Global error */}
       {error && !adding && !editing && (
-        <div className="mb-6 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <Alert className="mb-6" onDismiss={() => setError("")}>
           {error}
-        </div>
+        </Alert>
       )}
 
       {/* Bulk toolbar */}
       {!loading && notifications.length > 0 && (
-        <div className="mb-6 rounded-2xl border border-white/10 bg-[#0a0a0a] p-4">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-[#f3ead7]">
-                <input
-                  type="checkbox"
-                  checked={isAllCurrentPageSelected}
-                  onChange={toggleSelectCurrentPage}
-                  className="h-4 w-4 accent-[#ff7a59]"
-                />
-                Select all on this page
-              </label>
-              <span className="text-sm text-[#f3ead7]/70">
-                Selected: {selectedCount}
-              </span>
-              {selectedCount > 0 && (
-                <button
-                  onClick={clearSelection}
-                  className="rounded-lg border border-white/10 px-3 py-1 text-sm text-[#f3ead7] transition hover:bg-white/10"
-                >
-                  Clear Selection
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setBulkDeleteMode("selected")}
-                disabled={selectedCount === 0}
-                className="rounded-lg border border-red-400/40 px-4 py-2 text-sm font-semibold text-red-500 transition hover:bg-red-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Delete Selected
-              </button>
-              <button
-                onClick={() => setBulkDeleteMode("all")}
-                disabled={notifications.length === 0}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Delete All
-              </button>
-            </div>
+        <Toolbar>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-[#f4ead7]">
+            <input
+              type="checkbox"
+              checked={isAllCurrentPageSelected}
+              onChange={toggleSelectCurrentPage}
+              className="h-4 w-4 accent-[#ff7a59]"
+            />
+            Select all on this page
+          </label>
+          <span className="text-sm text-[#f4ead7]/60">Selected: {selectedCount}</span>
+          {selectedCount > 0 && (
+            <Button variant="secondary" size="sm" onClick={clearSelection}>
+              Clear Selection
+            </Button>
+          )}
+          <div className="flex flex-wrap gap-2 sm:ml-auto">
+            <Button
+              variant="danger"
+              icon={Trash2}
+              onClick={() => setBulkDeleteMode("selected")}
+              disabled={selectedCount === 0}
+            >
+              Delete Selected
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => setBulkDeleteMode("all")}
+              disabled={notifications.length === 0}
+            >
+              Delete All
+            </Button>
           </div>
-        </div>
+        </Toolbar>
       )}
 
-      {/* Grid */}
+      {/* List */}
       {loading ? (
-        <div className="rounded-2xl border border-[#ff7a59]/40 bg-[#0a0a0a] px-5 py-10 text-center text-[#f3ead7]/70">
-          Loading notifications...
-        </div>
+        <LoadingState label="Loading notifications…" />
       ) : notifications.length === 0 ? (
-        <div className="rounded-2xl border border-[#ff7a59]/40 bg-[#0a0a0a] px-5 py-10 text-center text-[#f3ead7]/70">
-          No notifications found.
-        </div>
+        <EmptyState icon={Bell} title="No notifications found." />
       ) : (
-        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {paginatedData.map((n) => {
-            const checked = selectedIds.includes(n.id);
-            return (
-              <div
-                key={n.id}
-                className={`group flex flex-col justify-between rounded-2xl bg-[#ece2cb] p-4 text-black shadow-sm ring-1 ring-black/10 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-black/10 ${
-                  checked ? "ring-2 ring-[#ff7a59]" : ""
-                }`}
-              >
-                <div>
-                  {/* Top row: checkbox + badges */}
-                  <div className="mb-3 flex items-center justify-between gap-2">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-black/70">
+        <div className={table.wrap}>
+          <table className={`${table.table} min-w-[940px]`}>
+            <thead className={table.thead}>
+              <tr>
+                <th className={`${table.th} w-10`}>
+                  <input
+                    type="checkbox"
+                    checked={isAllCurrentPageSelected}
+                    onChange={toggleSelectCurrentPage}
+                    aria-label="Select all on this page"
+                    title="Select all on this page"
+                    className="h-4 w-4 align-middle accent-[#ff7a59]"
+                  />
+                </th>
+                <th className={table.th}>Image</th>
+                <th className={table.th}>Notification</th>
+                <th className={table.th}>Delivery</th>
+                <th className={`${table.th} text-right`}>Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {paginatedData.map((n) => {
+                const checked = selectedIds.includes(n.id);
+                const status = statusOf(n);
+                // Selected rows get a light orange tint and an accent bar.
+                const cell = cx(table.td, checked && "bg-[#ff7a59]/10");
+                return (
+                  <tr key={n.id} className={table.row}>
+                    <td className={cx(cell, "w-10", checked && "shadow-[inset_3px_0_0_#ff7a59]")}>
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleSelectOne(n.id)}
-                        className="h-4 w-4 accent-[#ff7a59]"
+                        aria-label={`Select ${n.title || "notification"}`}
+                        className="h-4 w-4 align-middle accent-[#ff7a59]"
                       />
-                      Select
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${getDeliveryBadge(n)}`}
-                      >
-                        {getDeliveryLabel(n)}
-                      </span>
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${getStatusBadge(n)}`}
-                      >
-                        {n.status || (n.sent ? "sent" : "draft")}
-                      </span>
-                    </div>
-                  </div>
+                    </td>
 
-                  {/* Image */}
-                  {n.image ? (
-                    <div className="overflow-hidden rounded-xl">
-                      <img
-                        src={n.image}
-                        alt={n.title}
-                        className="mb-3 h-36 w-full border border-black/10 object-cover transition duration-300 group-hover:scale-105"
-                      />
-                    </div>
-                  ) : (
-                    <div className="mb-3 flex h-36 w-full items-center justify-center rounded-xl border border-dashed border-black/15 bg-white/50 text-sm text-black/40">
-                      No image
-                    </div>
-                  )}
+                    <td className={cell}>
+                      {n.image ? (
+                        <img src={n.image} alt="" className={table.thumb} />
+                      ) : (
+                        <div className={table.thumbEmpty} title="No image">
+                          <ImageOff className="h-4 w-4" aria-label="No image" />
+                        </div>
+                      )}
+                    </td>
 
-                  {/* Title */}
-                  <h3 className="truncate text-base font-semibold transition group-hover:text-[#ff7a59] md:text-lg">
-                    {n.title}
-                  </h3>
+                    <td className={cell}>
+                      <p className="max-w-[340px] truncate font-semibold">{n.title}</p>
+                      <p className="mt-0.5 line-clamp-2 max-w-[340px] text-xs text-black/60">
+                        {n.body}
+                      </p>
+                      {n.errorMessage ? (
+                        <p className="mt-1.5 flex max-w-[340px] items-start gap-1 text-xs text-red-700">
+                          <TriangleAlert className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
+                          <span className="line-clamp-2">{n.errorMessage}</span>
+                        </p>
+                      ) : null}
+                    </td>
 
-                  {/* Body */}
-                  <p className="mt-2 line-clamp-3 text-sm text-black/65">
-                    {n.body}
-                  </p>
+                    <td className={cell}>
+                      <div className="flex flex-wrap gap-1.5">
+                        <AudienceBadge item={n} />
+                        <Badge tone={statusTone(status)} className="capitalize">
+                          {status}
+                        </Badge>
+                      </div>
+                      <DeliveryCounts item={n} className="mt-1.5" />
+                    </td>
 
-                  {/* Stats */}
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                    <span className="rounded-full bg-black/5 px-2 py-1">
-                      ✅ Success: {n.sentCount || 0}
-                    </span>
-                    <span className="rounded-full bg-black/5 px-2 py-1">
-                      ❌ Failed: {n.failedCount || 0}
-                    </span>
-                  </div>
-
-                  {/* Error */}
-                  {n.errorMessage ? (
-                    <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
-                      {n.errorMessage}
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* Action buttons */}
-                <div className="mt-4 flex gap-2">
-                  <button
-                    onClick={() => setSelected(n)}
-                    className="inline-flex w-full items-center justify-center rounded-lg border border-black/10 px-3 py-2 text-xs font-semibold text-black transition-all duration-200 hover:bg-black hover:text-white md:text-sm"
-                  >
-                    View
-                  </button>
-                  <button
-                    onClick={() => openEditModal(n)}
-                    className="inline-flex w-full items-center justify-center rounded-lg bg-[#ff7a59] px-3 py-2 text-xs font-semibold text-white shadow-sm transition-all duration-200 hover:scale-[1.03] hover:shadow-md md:text-sm"
-                  >
-                    Update
-                  </button>
-                  <button
-                    onClick={() => setDeleting(n)}
-                    className="inline-flex w-full items-center justify-center rounded-lg border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-500 transition-all duration-200 hover:scale-[1.03] hover:bg-red-500 hover:text-white hover:shadow-md md:text-sm"
-                  >
-                    Delete
-                  </button>
-                </div>
-
-                <button
-                  onClick={() =>
-                    sendNotificationNow(n.id, {
-                      mode: n.deliveryMode ?? "topic",
-                      targetUserIds: n.targetUserIds || undefined,
-                    })
-                  }
-                  disabled={sendingId === n.id}
-                  className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-black px-3 py-2 text-xs font-semibold text-white transition-all duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
-                >
-                  {sendingId === n.id ? (
-                    <>
-                      <span className="animate-spin">⏳</span> Sending...
-                    </>
-                  ) : (
-                    <>
-                      <span>🚀</span> Send Now
-                    </>
-                  )}
-                </button>
-              </div>
-            );
-          })}
+                    <td className={cell}>
+                      <div className={table.actions}>
+                        <Button size="sm" variant="light" onClick={() => setSelected(n)}>
+                          View
+                        </Button>
+                        <Button size="sm" variant="light" onClick={() => openEditModal(n)}>
+                          Update
+                        </Button>
+                        <Button
+                          size="sm"
+                          icon={Send}
+                          loading={sendingId === n.id}
+                          onClick={() =>
+                            sendNotificationNow(n.id, {
+                              mode: n.deliveryMode ?? "topic",
+                              targetUserIds: n.targetUserIds || undefined,
+                            })
+                          }
+                        >
+                          {sendingId === n.id ? "Sending…" : "Send Now"}
+                        </Button>
+                        <Button size="sm" variant="danger" onClick={() => setDeleting(n)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
       {/* Pagination */}
-      {notifications.length > perPage && (
-        <div className="mt-8 flex items-center justify-between text-sm text-[#f3ead7]/70">
-          <p>
-            Showing {(safePage - 1) * perPage + 1}–
-            {Math.min(safePage * perPage, notifications.length)} of{" "}
-            {notifications.length} notifications
-          </p>
-          <div className="flex gap-2">
-            <button
-              disabled={safePage === 1}
-              onClick={() => setPage((p) => p - 1)}
-              className="rounded-lg border border-white/10 px-3 py-1 disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <button className="rounded-lg bg-[#ff7a59] px-3 py-1 text-white">
-              {safePage}
-            </button>
-            <button
-              disabled={safePage === totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              className="rounded-lg border border-white/10 px-3 py-1 disabled:opacity-40"
-            >
-              Next
-            </button>
-          </div>
-        </div>
+      {!loading && notifications.length > 0 && (
+        <Pagination
+          page={safePage}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          total={notifications.length}
+          perPage={perPage}
+          extra=" notifications"
+        />
       )}
 
       {/* ── Create / Edit Modal ── */}
@@ -857,11 +810,33 @@ const selectedUsers = users.filter((u) =>
         <Modal
           title={adding ? "Create Notification" : "Edit Notification"}
           onClose={closeModal}
+          footer={
+            <>
+              <Button variant="light" onClick={closeModal}>
+                Cancel
+              </Button>
+              <Button
+                icon={adding ? Send : undefined}
+                loading={saving}
+                onClick={adding ? handleAdd : handleUpdate}
+              >
+                {saving
+                  ? adding
+                    ? "Creating…"
+                    : "Saving…"
+                  : adding
+                    ? form.deliveryMode === "topic"
+                      ? "Create & Send to All Users"
+                      : "Create & Send to User"
+                    : "Save Changes"}
+              </Button>
+            </>
+          }
         >
           {error && (
-            <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+            <Alert surface="light" className="mb-4">
               {error}
-            </div>
+            </Alert>
           )}
 
           <Input
@@ -877,190 +852,154 @@ const selectedUsers = users.filter((u) =>
           />
 
           {/* ── Delivery Target ── */}
-          <div className="mt-5">
-            <label className="text-sm font-semibold text-black">
-              Send To
-            </label>
-
-            {/* Toggle pills */}
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <button
-                type="button"
+          <Field label="Send To">
+            <div className="grid grid-cols-2 gap-3">
+              <AudienceOption
+                active={form.deliveryMode === "topic"}
+                icon={Radio}
+                title="All Users"
+                hint="via topic: all_users"
                 onClick={() =>
                   setForm((p) => ({ ...p, deliveryMode: "topic", targetUserIds:  [] }))
                 }
-                className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 px-4 py-4 text-sm font-semibold transition-all duration-200 ${
-                  form.deliveryMode === "topic"
-                    ? "border-[#ff7a59] bg-[#ff7a59]/10 text-[#ff7a59]"
-                    : "border-black/10 bg-white/60 text-black/60 hover:border-black/25"
-                }`}
-              >
-                <span className="text-2xl">📡</span>
-                <span>All Users</span>
-                <span className="text-[10px] font-normal opacity-70">
-                  via topic: all_users
-                </span>
-              </button>
-
-              <button
-                type="button"
+              />
+              <AudienceOption
+                active={form.deliveryMode === "token"}
+                icon={User}
+                title="Specific User"
+                hint="via device token"
                 onClick={() =>
                   setForm((p) => ({ ...p, deliveryMode: "token" }))
                 }
-                className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 px-4 py-4 text-sm font-semibold transition-all duration-200 ${
-                  form.deliveryMode === "token"
-                    ? "border-[#ff7a59] bg-[#ff7a59]/10 text-[#ff7a59]"
-                    : "border-black/10 bg-white/60 text-black/60 hover:border-black/25"
-                }`}
-              >
-                <span className="text-2xl">👤</span>
-                <span>Specific User</span>
-                <span className="text-[10px] font-normal opacity-70">
-                  via device token
-                </span>
-              </button>
+              />
             </div>
 
             {/* User picker */}
             {form.deliveryMode === "token" && (
-              
-              <div className="mt-4 rounded-2xl border border-[#ff7a59]/25 bg-white/40 p-4">
-                <p className="mb-3 text-xs font-semibold text-black/60 uppercase tracking-wide">
+              <div className="mt-4 rounded-2xl border border-black/10 bg-white/50 p-4">
+                <p className="mb-3 text-xs font-bold tracking-wide text-black/55 uppercase">
                   Select Target User
                 </p>
 
-                {/* Search */}
-                <input
+                <TextInput
                   type="text"
                   placeholder="Search by name, email or ID…"
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
-                  className="mb-3 w-full rounded-xl border border-[#ff7a59]/40 bg-white px-3 py-2.5 text-sm text-black placeholder:text-black/35 focus:outline-none focus:ring-2 focus:ring-[#ff7a59]"
                 />
 
-                {usersLoading ? (
-                  <p className="py-4 text-center text-sm text-black/40">
-                    Loading users…
-                  </p>
-                ) : filteredUsers.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-black/40">
-                    No users found.
-                  </p>
-                ) : (
-                  <div className="max-h-52 space-y-1.5 overflow-y-auto pr-1">
-                    {filteredUsers.map((u) => {
-                     const isActive = form.targetUserIds.includes(u.id);
-                      return (
-                        <button
-                          key={u.id}
-                          type="button"
-                          onClick={() =>
-  setForm((p) => {
-    const exists = p.targetUserIds.includes(u.id);
+                <div className="mt-3">
+                  {usersLoading ? (
+                    <p className="flex items-center justify-center gap-2 py-4 text-sm text-black/45">
+                      <Spinner className="h-4 w-4" />
+                      Loading users…
+                    </p>
+                  ) : filteredUsers.length === 0 ? (
+                    <p className="py-4 text-center text-sm text-black/45">No users found.</p>
+                  ) : (
+                    <div className="max-h-52 space-y-1.5 overflow-y-auto pr-1">
+                      {filteredUsers.map((u) => {
+                        const isActive = form.targetUserIds.includes(u.id);
+                        return (
+                          <button
+                            key={u.id}
+                            type="button"
+                            aria-pressed={isActive}
+                            onClick={() =>
+                              setForm((p) => {
+                                const exists = p.targetUserIds.includes(u.id);
 
-    return {
-      ...p,
-      targetUserIds: exists
-        ? p.targetUserIds.filter((id) => id !== u.id)
-        : [...p.targetUserIds, u.id],
-    };
-  })
-}
-                          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-all duration-150 ${
-                            isActive
-                              ? "bg-[#ff7a59] text-white"
-                              : "bg-white/70 text-black hover:bg-white"
-                          }`}
-                        >
-                          {/* Avatar placeholder */}
-                          <div
-                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                                return {
+                                  ...p,
+                                  targetUserIds: exists
+                                    ? p.targetUserIds.filter((id) => id !== u.id)
+                                    : [...p.targetUserIds, u.id],
+                                };
+                              })
+                            }
+                            className={cx(
+                              "flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition",
                               isActive
-                                ? "bg-white/25 text-white"
-                                : "bg-[#ff7a59]/15 text-[#ff7a59]"
-                            }`}
+                                ? "border-[#ff7a59] bg-[#ff7a59]/10"
+                                : "border-transparent bg-white/70 hover:bg-white",
+                            )}
                           >
-                            {(u.displayName || u.email || "?")
-                              .charAt(0)
-                              .toUpperCase()}
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate font-semibold">
-                              {u.displayName || "(no name)"}
-                            </p>
-                            <p
-                              className={`truncate text-xs ${
-                                isActive ? "text-white/75" : "text-black/50"
-                              }`}
+                            {/* Avatar placeholder */}
+                            <span
+                              className={cx(
+                                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                                isActive
+                                  ? "bg-[#ff7a59] text-white"
+                                  : "bg-[#ff7a59]/15 text-[#ff7a59]",
+                              )}
                             >
-                              {u.email || u.id}
-                            </p>
-                          </div>
+                              {(u.displayName || u.email || "?").charAt(0).toUpperCase()}
+                            </span>
 
-                          {/* Token indicator */}
-                          <span
-                            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              u.hasToken
-                                ? isActive
-                                  ? "bg-white/20 text-white"
-                                  : "bg-green-100 text-green-700"
-                                : isActive
-                                  ? "bg-white/20 text-white/70"
-                                  : "bg-red-100 text-red-500"
-                            }`}
-                          >
-                            {u.hasToken ? "● Token" : "No token"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-semibold text-black">
+                                {u.displayName || "(no name)"}
+                              </span>
+                              <span className="block truncate text-xs text-black/50">
+                                {u.email || u.id}
+                              </span>
+                            </span>
+
+                            {/* Token indicator */}
+                            <Badge tone={u.hasToken ? "green" : "red"}>
+                              {u.hasToken ? "Token" : "No token"}
+                            </Badge>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
 
                 {/* Selected user summary */}
-            {selectedUsers.length > 0 && (
-                 <div className="mt-3 flex flex-wrap gap-2">
-  {selectedUsers.map((u) => (
-    <div
-      key={u.id}
-      className="flex items-center gap-2 rounded-xl border border-[#ff7a59]/30 bg-[#ff7a59]/5 px-3 py-2 text-sm"
-    >
-      <span className="text-[#ff7a59]">✓</span>
-      <span className="font-semibold text-black">
-        {u.displayName || u.email || u.id}
-      </span>
-
-      {!u.hasToken && (
-        <span className="text-xs text-red-500">⚠ No token</span>
-      )}
-    </div>
-  ))}
-</div>
+                {selectedUsers.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedUsers.map((u) => (
+                      <span
+                        key={u.id}
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#ff7a59]/30 bg-[#ff7a59]/10 px-3 py-1 text-xs"
+                      >
+                        <Check className="h-3.5 w-3.5 shrink-0 text-[#ff7a59]" aria-hidden />
+                        <span className="truncate font-semibold text-black">
+                          {u.displayName || u.email || u.id}
+                        </span>
+                        {!u.hasToken && (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-red-600">
+                            <TriangleAlert className="h-3 w-3" aria-hidden />
+                            No token
+                          </span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
-          </div>
+          </Field>
 
           {/* ── Image Upload ── */}
-          <div className="mt-5">
-            <label className="text-sm font-semibold text-black">
-              Image (optional)
-            </label>
-            <div className="mt-3 flex flex-col items-center gap-4 rounded-2xl border border-[#ff7a59]/25 bg-white/35 px-4 py-5">
+          <Field label="Image (optional)">
+            <div className="flex flex-col items-center gap-4 rounded-2xl border border-black/10 bg-white/50 px-4 py-5">
               {currentImagePreview ? (
                 <img
                   src={currentImagePreview}
                   alt="Notification preview"
-                  className="h-32 w-full rounded-2xl border border-black/10 object-cover shadow-sm"
+                  className="h-40 w-full rounded-xl border border-black/10 object-cover shadow-sm"
                 />
               ) : (
-                <div className="flex h-32 w-full items-center justify-center rounded-2xl border border-dashed border-black/20 bg-black/5 text-sm text-black/40">
+                <div className="flex h-32 w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-black/20 bg-black/5 text-sm text-black/40">
+                  <ImagePlus className="h-5 w-5" aria-hidden />
                   No image
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <label className="cursor-pointer rounded-xl border border-[#ff7a59] px-4 py-2 text-sm font-semibold text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white">
+                <label className={cx(buttonClass("outline"), "cursor-pointer")}>
+                  <Upload className="h-4 w-4" aria-hidden />
                   {editing ? "Change Image" : "Upload Image"}
                   <input
                     type="file"
@@ -1073,111 +1012,74 @@ const selectedUsers = users.filter((u) =>
                   />
                 </label>
                 {(file || editing?.image) && (
-                  <button
+                  <Button
                     type="button"
+                    variant="danger"
                     onClick={() => {
                       setFile(null);
                       if (editing?.image) setRemoveExistingImage(true);
                     }}
-                    className="rounded-xl border border-red-400 px-4 py-2 text-sm font-semibold text-red-500 transition hover:bg-red-500 hover:text-white"
                   >
                     Remove Image
-                  </button>
+                  </Button>
                 )}
               </div>
             </div>
-          </div>
-
-          <button
-            onClick={adding ? handleAdd : handleUpdate}
-            disabled={saving}
-            className="mt-6 w-full rounded-xl bg-[#ff7a59] py-3 text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {saving
-              ? adding
-                ? "Creating…"
-                : "Saving…"
-              : adding
-                ? form.deliveryMode === "topic"
-                  ? "🚀 Create & Send to All Users"
-                  : "🚀 Create & Send to User"
-                : "Save Changes"}
-          </button>
+          </Field>
         </Modal>
       )}
 
       {/* ── View Modal ── */}
       {selected && (
         <Modal title="Notification Details" onClose={() => setSelected(null)}>
-          <div className="space-y-4 text-black">
+          <div className="space-y-5">
             {selected.image ? (
               <img
                 src={selected.image}
                 alt={selected.title}
-                className="h-40 w-full rounded-2xl border border-black/10 object-cover"
+                className="h-48 w-full rounded-2xl border border-black/10 object-cover"
               />
             ) : null}
 
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-black/50">
-                Title
-              </p>
-              <p className="mt-1 text-base font-semibold">{selected.title}</p>
+              <DetailLabel>Title</DetailLabel>
+              <p className="mt-1 text-base font-semibold break-words">{selected.title}</p>
             </div>
 
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-black/50">
-                Message
-              </p>
-              <div className="mt-1 rounded-xl border border-black/10 bg-white p-4 text-sm">
+              <DetailLabel>Message</DetailLabel>
+              <div className="mt-1.5 rounded-xl border border-black/10 bg-white p-4 text-sm whitespace-pre-wrap break-words">
                 {selected.body}
               </div>
             </div>
 
             {/* Delivery info */}
-            <div className="rounded-xl border border-black/10 bg-white/60 p-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-black/50">
-                Delivery Details
-              </p>
-              <div className="flex flex-wrap gap-2 text-sm">
-                <span
-                  className={`rounded-full px-3 py-1 font-semibold ${getDeliveryBadge(selected)}`}
-                >
-                  {getDeliveryLabel(selected)}
-                </span>
+            <div className="rounded-xl border border-black/10 bg-white/50 p-4">
+              <DetailLabel>Delivery Details</DetailLabel>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <AudienceBadge item={selected} />
                 {selected.deliveryMode === "topic" && selected.targetTopic && (
-                  <span className="rounded-full bg-black/5 px-3 py-1">
-                    Topic: {selected.targetTopic}
-                  </span>
+                  <Badge>Topic: {selected.targetTopic}</Badge>
                 )}
-              {selected.deliveryMode === "token" &&
-  Array.isArray(selected.targetUserIds) &&
-  selected.targetUserIds.length > 0 && (
-    <span className="rounded-full bg-black/5 px-3 py-1 font-mono text-xs">
-      Users: {selected.targetUserIds.join(", ")}
-    </span>
-)}
+                {selected.deliveryMode === "token" &&
+                  Array.isArray(selected.targetUserIds) &&
+                  selected.targetUserIds.length > 0 && (
+                    <span className="rounded-lg bg-black/5 px-2 py-1 font-mono text-xs break-all text-black/70">
+                      Users: {selected.targetUserIds.join(", ")}
+                    </span>
+                  )}
               </div>
-            </div>
 
-            <div className="flex flex-wrap gap-2 text-sm">
-              <span
-                className={`rounded-full px-3 py-1 font-semibold ${getStatusBadge(selected)}`}
-              >
-                {selected.status || (selected.sent ? "sent" : "draft")}
-              </span>
-              <span className="rounded-full bg-black/5 px-3 py-1">
-                ✅ Success: {selected.sentCount || 0}
-              </span>
-              <span className="rounded-full bg-black/5 px-3 py-1">
-                ❌ Failed: {selected.failedCount || 0}
-              </span>
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-black/10 pt-3">
+                <Badge tone={statusTone(statusOf(selected))} className="capitalize">
+                  {statusOf(selected)}
+                </Badge>
+                <DeliveryCounts item={selected} className="text-sm" />
+              </div>
             </div>
 
             {selected.errorMessage ? (
-              <div className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
-                {selected.errorMessage}
-              </div>
+              <Alert surface="light">{selected.errorMessage}</Alert>
             ) : null}
           </div>
         </Modal>
@@ -1185,28 +1087,27 @@ const selectedUsers = users.filter((u) =>
 
       {/* ── Delete Modal ── */}
       {deleting && (
-        <Modal title="Delete Notification" onClose={() => setDeleting(null)}>
-          <p className="text-black">
-            Delete{" "}
-            <span className="font-semibold">"{deleting.title}"</span>?
+        <Modal
+          title="Delete Notification"
+          size="sm"
+          onClose={() => setDeleting(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger-solid" onClick={confirmDelete}>
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <p>
+            Delete &ldquo;<span className="font-semibold">{deleting.title}</span>&rdquo;?
           </p>
           <p className="mt-2 text-sm text-black/60">
             This will permanently remove the notification and its image from storage.
           </p>
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={() => setDeleting(null)}
-              className="rounded-xl border border-black/15 px-4 py-2 text-black"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDelete}
-              className="rounded-xl bg-red-500 px-4 py-2 font-semibold text-white"
-            >
-              Delete
-            </button>
-          </div>
         </Modal>
       )}
 
@@ -1218,11 +1119,32 @@ const selectedUsers = users.filter((u) =>
               ? "Delete All Notifications"
               : "Delete Selected Notifications"
           }
+          size="sm"
           onClose={() => {
             if (!bulkDeleting) setBulkDeleteMode(null);
           }}
+          footer={
+            <>
+              <Button
+                variant="light"
+                onClick={() => setBulkDeleteMode(null)}
+                disabled={bulkDeleting}
+              >
+                Cancel
+              </Button>
+              <Button variant="danger-solid" onClick={handleBulkDelete} loading={bulkDeleting}>
+                {bulkDeleting
+                  ? bulkDeleteMode === "all"
+                    ? "Deleting All…"
+                    : "Deleting…"
+                  : bulkDeleteMode === "all"
+                    ? "Delete All"
+                    : "Delete Selected"}
+              </Button>
+            </>
+          }
         >
-          <p className="text-black">
+          <p>
             {bulkDeleteMode === "all"
               ? "Are you sure you want to delete all notifications?"
               : `Are you sure you want to delete ${selectedCount} selected notification${selectedCount > 1 ? "s" : ""}?`}
@@ -1230,28 +1152,6 @@ const selectedUsers = users.filter((u) =>
           <p className="mt-2 text-sm text-black/60">
             This action cannot be undone and will also remove related images from storage.
           </p>
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={() => setBulkDeleteMode(null)}
-              disabled={bulkDeleting}
-              className="rounded-xl border border-black/15 px-4 py-2 text-black disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleBulkDelete}
-              disabled={bulkDeleting}
-              className="rounded-xl bg-red-500 px-4 py-2 font-semibold text-white disabled:opacity-50"
-            >
-              {bulkDeleting
-                ? bulkDeleteMode === "all"
-                  ? "Deleting All…"
-                  : "Deleting…"
-                : bulkDeleteMode === "all"
-                  ? "Delete All"
-                  : "Delete Selected"}
-            </button>
-          </div>
         </Modal>
       )}
     </div>
@@ -1259,35 +1159,95 @@ const selectedUsers = users.filter((u) =>
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Shared UI components
+//  Presentation helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Modal({
-  children,
-  title,
-  onClose,
-}: {
-  children: React.ReactNode;
-  title: string;
-  onClose: () => void;
-}) {
+const statusOf = (item: NotificationItem): NotificationStatus =>
+  item.status || (item.sent ? "sent" : "draft");
+
+const STATUS_TONES: Record<NotificationStatus, BadgeTone> = {
+  draft: "neutral",
+  queued: "purple",
+  sending: "blue",
+  sent: "green",
+  partial: "amber",
+  failed: "red",
+};
+
+const statusTone = (status: NotificationStatus): BadgeTone =>
+  STATUS_TONES[status] ?? "neutral";
+
+function AudienceBadge({ item }: { item: NotificationItem }) {
+  const targeted = item.deliveryMode === "token";
+  const Icon = targeted ? User : Radio;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-[#e8dcc7] p-6 shadow-2xl">
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-[#ff7a59]">{title}</h2>
-          <button
-            onClick={onClose}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-black/10 text-black transition hover:bg-black/20"
-          >
-            ✕
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <Badge>
+      <Icon className="h-3 w-3" aria-hidden />
+      {targeted ? "Targeted" : "All Users"}
+    </Badge>
   );
 }
+
+function DeliveryCounts({ item, className }: { item: NotificationItem; className?: string }) {
+  return (
+    <p
+      className={cx(
+        "flex flex-wrap items-center gap-x-3 gap-y-1 text-xs whitespace-nowrap text-black/65",
+        className,
+      )}
+    >
+      <span className="inline-flex items-center gap-1">
+        <CircleCheck className="h-3.5 w-3.5 text-emerald-700" aria-hidden />
+        Success: {item.sentCount || 0}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <CircleX className="h-3.5 w-3.5 text-red-600" aria-hidden />
+        Failed: {item.failedCount || 0}
+      </span>
+    </p>
+  );
+}
+
+function DetailLabel({ children }: { children: string }) {
+  return (
+    <p className="text-xs font-semibold tracking-wide text-black/50 uppercase">{children}</p>
+  );
+}
+
+/* One of the two "Send To" choices in the create / edit modal. */
+function AudienceOption({
+  active,
+  icon: Icon,
+  title,
+  hint,
+  onClick,
+}: {
+  active: boolean;
+  icon: LucideIcon;
+  title: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cx(
+        "flex flex-col items-center gap-1.5 rounded-2xl border-2 px-3 py-4 text-center text-sm font-semibold transition focus-visible:ring-2 focus-visible:ring-[#ff7a59]/40 focus-visible:outline-none",
+        active
+          ? "border-[#ff7a59] bg-[#ff7a59]/10 text-[#ff7a59]"
+          : "border-black/10 bg-white/60 text-black/65 hover:border-black/25",
+      )}
+    >
+      <Icon className="h-6 w-6" aria-hidden />
+      <span>{title}</span>
+      <span className="text-[11px] font-normal opacity-70">{hint}</span>
+    </button>
+  );
+}
+
+/* Form fields bound to a string value. */
 
 function Input({
   label,
@@ -1299,14 +1259,9 @@ function Input({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="mt-4">
-      <label className="text-sm font-semibold text-black">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-2 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black placeholder:text-black/35 focus:outline-none focus:ring-2 focus:ring-[#ff7a59]"
-      />
-    </div>
+    <Field label={label}>
+      <TextInput value={value} onChange={(e) => onChange(e.target.value)} />
+    </Field>
   );
 }
 
@@ -1320,13 +1275,8 @@ function Textarea({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="mt-4">
-      <label className="text-sm font-semibold text-black">{label}</label>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-2 h-28 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black placeholder:text-black/35 focus:outline-none focus:ring-2 focus:ring-[#ff7a59]"
-      />
-    </div>
+    <Field label={label}>
+      <TextArea value={value} onChange={(e) => onChange(e.target.value)} />
+    </Field>
   );
 }

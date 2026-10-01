@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Images, Plus } from "lucide-react";
 import {
   addDoc,
   collection,
@@ -17,6 +18,21 @@ import {
 
 import { db, storage } from "@/lib/firebaseServices";
 import { deleteStorageFileByUrl } from "@/lib/adminData";
+import {
+  Alert,
+  Button,
+  EmptyState,
+  Field,
+  ImagePicker,
+  LoadingState,
+  Modal,
+  PageHeader,
+  SelectInput,
+  TextInput,
+  cx,
+  table,
+  useObjectUrl,
+} from "@/components/ui";
 
 /* TYPES */
 type Category = {
@@ -104,6 +120,9 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState("");
+
+  /* Preview of the picked image file. */
+  const fileUrl = useObjectUrl(file);
 
   /* FETCH */
   const fetchData = async () => {
@@ -405,91 +424,79 @@ export default function Page() {
   };
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
-          Header Images
-        </h1>
-
-        <button
-          onClick={() => {
-            setEditing(null);
-            setForm(EMPTY_FORM);
-            setFile(null);
-            setError("");
-            setAdding(true);
-          }}
-          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] sm:self-auto sm:px-5 sm:text-base"
-        >
-          Add Header Image
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Header Images"
+        actions={
+          <Button
+            variant="outline"
+            icon={Plus}
+            onClick={() => {
+              setEditing(null);
+              setForm(EMPTY_FORM);
+              setFile(null);
+              setError("");
+              setAdding(true);
+            }}
+          >
+            Add Header Image
+          </Button>
+        }
+      />
 
       {error && !adding && !editing && (
-        <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <Alert className="mb-6" onDismiss={() => setError("")}>
           {error}
-        </div>
+        </Alert>
       )}
 
       {pageLoading ? (
-        <div className="rounded-2xl border border-white/10 bg-[#ece2cb] p-8 text-center text-black">
-          Loading header images...
-        </div>
+        <LoadingState label="Loading header images…" />
       ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-white/10 bg-[#ece2cb] p-8 text-center text-black">
-          No header images found.
-        </div>
+        <EmptyState icon={Images} title="No header images found." />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-white/10">
-          <table className="w-full min-w-[700px] text-left">
-            <thead className="bg-[#ece2cb] text-black">
+        <div className={table.wrap}>
+          <table className={`${table.table} min-w-[700px]`}>
+            <thead className={table.thead}>
               <tr>
-                <th className="p-3">Image</th>
-                <th className="p-3">Title</th>
-                <th className="p-3">SubCategory</th>
-                <th className="p-3">Listing</th>
-                <th className="p-3 text-right">Actions</th>
+                <th className={table.th}>Image</th>
+                <th className={table.th}>Title</th>
+                <th className={table.th}>Sub Category</th>
+                <th className={table.th}>Listing</th>
+                <th className={`${table.th} text-right`}>Actions</th>
               </tr>
             </thead>
 
             <tbody>
               {items.map((item) => (
-                <tr
-                  key={item.id}
-                  className="border-b border-white/10 bg-[#ece2cb] text-black"
-                >
-                  <td className="p-3">
+                <tr key={item.id} className={table.row}>
+                  <td className={table.td}>
                     {item.image ? (
-                      <img
-                        src={item.image}
-                        alt={item.title}
-                        className="h-14 w-20 rounded-lg object-cover"
-                      />
+                      <img src={item.image} alt={item.title} className={table.thumbWide} />
                     ) : (
-                      <div className="flex h-14 w-20 items-center justify-center rounded-lg border border-black/10 bg-black/5 text-[10px] text-black/35">
-                        No Img
-                      </div>
+                      <div className={table.thumbWideEmpty}>No Img</div>
                     )}
                   </td>
 
-                  <td className="p-3 font-semibold">{item.title}</td>
-                  <td className="p-3">{item.subCategoryName || "-"}</td>
-                  <td className="p-3">{item.productName || "-"}</td>
+                  <td className={table.td}>
+                    <TextCell value={item.title} className="font-semibold" />
+                  </td>
+                  <td className={table.td}>
+                    <TextCell value={item.subCategoryName || ""} />
+                  </td>
+                  <td className={table.td}>
+                    <TextCell value={item.productName || ""} />
+                  </td>
 
-                  <td className="p-3 text-right">
-                    <button
-                      onClick={() => setEditing(item)}
-                      className="bg-[#ff7a59] px-3 py-1 text-white rounded mr-2"
-                    >
-                      Update
-                    </button>
-
-                    <button
-                      onClick={() => setDeleting(item)}
-                      className="border border-red-400 px-3 py-1 text-red-500 rounded"
-                    >
-                      Delete
-                    </button>
+                  <td className={table.td}>
+                    <div className={table.actions}>
+                      <Button size="sm" onClick={() => setEditing(item)}>
+                        Update
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => setDeleting(item)}>
+                        Delete
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -501,10 +508,23 @@ export default function Page() {
       {(adding || editing) && (
         <Modal
           title={adding ? "Add Header Image" : "Update Header Image"}
+          size="md"
           onClose={closeModal}
+          footer={
+            <>
+              <Button variant="light" onClick={closeModal}>
+                Cancel
+              </Button>
+              <Button onClick={adding ? handleAdd : handleUpdate} loading={loading}>
+                {loading ? "Saving…" : adding ? "Save Header Image" : "Update Header Image"}
+              </Button>
+            </>
+          }
         >
           {error && (
-            <div className="text-red-500 mb-3 text-sm">{error}</div>
+            <Alert surface="light" className="mb-4">
+              {error}
+            </Alert>
           )}
 
           <Input
@@ -528,7 +548,7 @@ export default function Page() {
           />
 
           <Select
-            label="SubCategory"
+            label="Sub Category"
             value={form.subCategoryId}
             onChange={(v: string) =>
               setForm((prev) => ({
@@ -552,58 +572,37 @@ export default function Page() {
             }))}
           />
 
-          <div className="mt-4">
-            <label className="font-semibold">Image</label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="mt-1 w-full border rounded-xl p-3"
-            />
-          </div>
-
-          {editing?.image && !file && (
-            <div className="mt-4">
-              <p className="mb-2 text-sm text-black/70">Current image</p>
-              <img
-                src={editing.image}
-                alt={editing.title}
-                className="h-24 w-32 rounded-xl object-cover border"
-              />
-            </div>
-          )}
-
-          <button
-            onClick={adding ? handleAdd : handleUpdate}
-            disabled={loading}
-            className="mt-6 w-full bg-[#ff7a59] text-white py-3 rounded-xl disabled:opacity-60"
-          >
-            {loading ? "Saving..." : adding ? "Save Header Image" : "Update Header Image"}
-          </button>
+          <ImagePicker
+            shape="wide"
+            label="Image"
+            accept="image/*"
+            previewUrl={fileUrl || editing?.image || ""}
+            note={file ? file.name : editing?.image ? "Current image" : undefined}
+            onFile={(picked) => setFile(picked)}
+          />
         </Modal>
       )}
 
       {deleting && (
-        <Modal title="Delete" onClose={() => setDeleting(null)}>
-          <p className="mb-4 text-black">
-            Are you sure you want to delete <b>{deleting.title}</b>?
+        <Modal
+          title="Delete"
+          size="sm"
+          onClose={() => setDeleting(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger-solid" onClick={confirmDelete}>
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <p>
+            Are you sure you want to delete{" "}
+            <span className="font-semibold">{deleting.title}</span>?
           </p>
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => setDeleting(null)}
-              className="w-full border py-2 rounded-xl"
-            >
-              Cancel
-            </button>
-
-            <button
-              onClick={confirmDelete}
-              className="w-full bg-red-500 text-white py-2 rounded-xl"
-            >
-              Delete
-            </button>
-          </div>
         </Modal>
       )}
     </div>
@@ -611,25 +610,14 @@ export default function Page() {
 }
 
 /* UI */
-function Modal({
-  children,
-  title,
-  onClose,
-}: {
-  children: React.ReactNode;
-  title: string;
-  onClose: () => void;
-}) {
+
+/* Table text that truncates long values and shows a dash when empty. */
+function TextCell({ value, className }: { value: string; className?: string }) {
+  if (!value) return <span className="text-black/35">—</span>;
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex justify-center items-center px-4">
-      <div className="bg-[#e8dcc7] p-6 rounded-3xl w-full max-w-lg text-black max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose}>✖</button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <span className={cx("block max-w-[240px] truncate", className)} title={value}>
+      {value}
+    </span>
   );
 }
 
@@ -643,14 +631,9 @@ function Input({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="mt-3">
-      <label className="font-semibold">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full border rounded-xl p-3 mt-1"
-      />
-    </div>
+    <Field label={label}>
+      <TextInput value={value} onChange={(e) => onChange(e.target.value)} />
+    </Field>
   );
 }
 
@@ -666,20 +649,15 @@ function Select({
   options: Array<{ id: string; name: string }>;
 }) {
   return (
-    <div className="mt-3">
-      <label className="font-semibold">{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full border rounded-xl p-3 mt-1"
-      >
+    <Field label={label}>
+      <SelectInput value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Select</option>
         {options.map((o) => (
           <option key={o.id} value={o.id}>
             {o.name}
           </option>
         ))}
-      </select>
-    </div>
+      </SelectInput>
+    </Field>
   );
 }
