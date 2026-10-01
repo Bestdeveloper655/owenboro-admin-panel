@@ -2,8 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { Save, Smartphone } from "lucide-react";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebaseServices";
+import {
+  Alert,
+  Button,
+  Card,
+  Field,
+  LoadingState,
+  PageHeader,
+  SwitchRow,
+  TextArea,
+  TextInput,
+} from "@/components/ui";
 
 type PlatformConfig = {
   latest_version: string;
@@ -141,7 +153,7 @@ export default function AppConfigPage() {
         { merge: true },
       );
 
-      showToast("Config updated successfully 🚀");
+      showToast("Config updated successfully");
     } catch (err: any) {
       showToast(
         err?.code === "permission-denied"
@@ -155,31 +167,23 @@ export default function AppConfigPage() {
   };
 
   if (initialLoading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#ff6b4a] border-t-transparent" />
-      </div>
-    );
+    return <LoadingState label="Loading app config…" />;
   }
 
   return (
-    <div className="px-4 pt-6 pb-10 md:px-8">
+    <div>
+      <PageHeader
+        title="App Configuration"
+        description="Only enter a new version after the store has approved and published it."
+      />
+
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="max-w-6xl mx-auto rounded-[28px] border border-[#ff6b4a] bg-black p-6"
       >
-        <h2 className="text-3xl font-bold text-[#ff6b4a] mb-1">
-          App Configuration
-        </h2>
-        <p className="text-sm text-gray-400">
-          Only enter a new version after the store has approved and published
-          it.
-        </p>
-
         {/* Android and iOS side by side; stacked on narrow screens */}
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="grid items-start gap-6 lg:grid-cols-2">
           <PlatformSection
             title="Android"
             storeLabel="Play Store URL"
@@ -196,25 +200,28 @@ export default function AppConfigPage() {
         </div>
 
         {/* Shared settings + save */}
-        <div className="mt-6 grid gap-4 lg:grid-cols-2 lg:items-center">
-          <Toggle
-            label="Pause All Messaging"
-            description="Temporarily stops users from sending group and direct messages"
-            checked={messagingPaused}
-            onChange={setMessagingPaused}
-          />
+        <Card className="mt-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <SwitchRow
+              tone="dark"
+              flush
+              className="flex-1"
+              title="Pause All Messaging"
+              description="Temporarily stops users from sending group and direct messages"
+              checked={messagingPaused}
+              onChange={setMessagingPaused}
+            />
 
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full h-full min-h-[56px] rounded-2xl bg-[#ff6b4a] py-3 text-lg font-semibold text-white transition hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
-          >
-          {loading && (
-            <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-          )}
-            {loading ? "Saving..." : "Save Changes"}
-          </button>
-        </div>
+            <Button
+              icon={Save}
+              onClick={handleSubmit}
+              loading={loading}
+              className="w-full sm:w-auto"
+            >
+              {loading ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </Card>
       </motion.div>
     </div>
   );
@@ -241,9 +248,14 @@ function PlatformSection({
     compareVersions(value.min_supported_version, value.latest_version) > 0;
 
   return (
-    <div className="rounded-2xl border border-[#ff6b4a]/60 p-4">
-      <h3 className="text-xl font-bold text-[#ff6b4a]">{title}</h3>
-
+    <Card
+      title={
+        <span className="flex items-center gap-2">
+          <Smartphone className="h-4 w-4 text-[#ff7a59]" aria-hidden />
+          {title}
+        </span>
+      }
+    >
       {/* Versions share a row to keep each column short */}
       <div className="grid gap-x-4 sm:grid-cols-2">
         <Input
@@ -260,9 +272,9 @@ function PlatformSection({
       </div>
 
       {isInvalidVersion && (
-        <p className="text-red-400 text-sm mt-2">
-          ⚠️ Min version cannot be higher than latest version
-        </p>
+        <Alert className="mt-4">
+          Min version cannot be higher than latest version
+        </Alert>
       )}
 
       <Input
@@ -271,54 +283,23 @@ function PlatformSection({
         onChange={(v) => set({ store_url: v.trim() })}
       />
 
-      <div className="mt-4">
-        <label className="text-[#f4ead7] font-semibold">Update Message</label>
-        <textarea
+      <Field label="Update Message" tone="dark">
+        <TextArea
+          tone="dark"
           rows={2}
           value={value.message}
           onChange={(e) => set({ message: e.target.value })}
-          className="w-full mt-2 rounded-xl border border-[#ff6b4a] bg-black p-3 text-white focus:outline-none"
         />
-      </div>
+      </Field>
 
-      <div className="mt-4">
-        <Toggle
-          label="Force Update"
-          description={`${title} users on an older version must update to continue`}
-          checked={value.force_update}
-          onChange={(v) => set({ force_update: v })}
-        />
-      </div>
-    </div>
-  );
-}
-
-/* TOGGLE COMPONENT */
-function Toggle({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-[#ff6b4a] p-4">
-      <div>
-        <p className="text-[#f4ead7] font-semibold">{label}</p>
-        <p className="text-sm text-gray-400">{description}</p>
-      </div>
-
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="h-6 w-6 shrink-0 accent-[#ff6b4a]"
+      <SwitchRow
+        tone="dark"
+        title="Force Update"
+        description={`${title} users on an older version must update to continue`}
+        checked={value.force_update}
+        onChange={(v) => set({ force_update: v })}
       />
-    </div>
+    </Card>
   );
 }
 
@@ -333,13 +314,8 @@ function Input({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="mt-4">
-      <label className="text-[#f4ead7] font-semibold">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full mt-2 rounded-xl border border-[#ff6b4a] bg-black p-3 text-white focus:outline-none"
-      />
-    </div>
+    <Field label={label} tone="dark">
+      <TextInput tone="dark" value={value} onChange={(e) => onChange(e.target.value)} />
+    </Field>
   );
 }

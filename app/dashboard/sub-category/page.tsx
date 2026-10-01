@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { Layers, Plus } from "lucide-react";
 import {
   collection,
   getDocs,
@@ -21,6 +22,21 @@ import {
   sortByOrder,
   writeSequence,
 } from "@/lib/adminData";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  ImagePicker,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Pagination,
+  SelectInput,
+  TextInput,
+  table,
+} from "@/components/ui";
 
 /* TYPES */
 type SubCategory = {
@@ -294,126 +310,169 @@ export default function Page() {
     page * perPage,
   );
 
+  const totalPages = Math.ceil(subCategories.length / perPage);
+
+  /* Sub categories per category, for the group headings in the table. */
+  const groupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    subCategories.forEach((s) => counts.set(s.categoryId, (counts.get(s.categoryId) ?? 0) + 1));
+    return counts;
+  }, [subCategories]);
+
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-4 sm:pt-6 sm:pb-10 md:px-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
-            Sub Categories
-          </h1>
-          <p className="mt-1 text-sm text-[#e8dcc7]/70">
-            Change the order sub categories appear in the app in{" "}
-            <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
-              Display Order
-            </Link>
-            .
-          </p>
-        </div>
+    <div>
+      <PageHeader
+        title="Sub Categories"
+        actions={
+          <Button
+            variant="outline"
+            icon={Plus}
+            onClick={() => {
+              setAdding(true);
+              setEditing(null);
+              resetFormState();
+            }}
+          >
+            Add Sub Category
+          </Button>
+        }
+      >
+        <p className="mt-1 text-sm text-[#e8dcc7]/70">
+          Change the order sub categories appear in the app in{" "}
+          <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
+            Display Order
+          </Link>
+          .
+        </p>
+      </PageHeader>
 
-        <button
-          onClick={() => {
-            setAdding(true);
-            setEditing(null);
-            resetFormState();
-          }}
-          className="inline-flex h-11 items-center justify-center rounded-xl border border-[#ff7a59] px-5 text-sm font-semibold text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white"
-        >
-          Add Sub Category
-        </button>
-      </div>
-
-      <section className="mt-8 rounded-[28px] border border-[#ff7a59]/70 bg-[#0a0a0a] p-5 md:p-6">
-        {loading ? (
-          <p className="text-[#f3ead7]">Loading...</p>
-        ) : (
-          <>
-            <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full min-w-[700px] text-left">
-                <thead className="bg-[#ece2cb] text-black">
+      {loading ? (
+        <LoadingState label="Loading sub categories…" />
+      ) : (
+        <>
+          {subCategories.length === 0 ? (
+            <EmptyState icon={Layers} title="No sub categories found." />
+          ) : (
+            <div className={table.wrap}>
+              <table className={`${table.table} min-w-[600px]`}>
+                <thead className={table.thead}>
                   <tr>
-                    <th className="p-3">Image</th>
-                    <th className="p-3">Name</th>
-                    <th className="p-3">Category</th>
-                    <th className="p-3">Position</th>
-                    <th className="p-3 text-right">Actions</th>
+                    <th className={table.th}>Image</th>
+                    <th className={table.th}>Name</th>
+                    <th className={table.th}>Position</th>
+                    <th className={`${table.th} text-right`}>Actions</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {paginatedData.map((item) => (
-                    <tr
-                      key={item.id}
-                      className="border-b border-white/10 bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
-                    >
-                      <td className="p-3">
-                        {item.image ? (
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="h-12 w-12 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-12 w-12 items-center justify-center rounded-lg border border-black/10 bg-black/5 text-[10px] text-black/35">
-                            No Img
-                          </div>
+                  {paginatedData.map((item, index) => {
+                    const prev = paginatedData[index - 1];
+                    const startsGroup = !prev || prev.categoryId !== item.categoryId;
+                    const groupSize = groupCounts.get(item.categoryId) ?? 0;
+
+                    return (
+                      <Fragment key={item.id}>
+                        {startsGroup && (
+                          <tr className={table.groupRow}>
+                            <td colSpan={4} className="px-4 py-2">
+                              <span className="font-semibold">{item.category || "No category"}</span>
+                              <span className="ml-2 text-xs text-black/50">
+                                {groupSize} {groupSize === 1 ? "sub category" : "sub categories"}
+                              </span>
+                            </td>
+                          </tr>
                         )}
-                      </td>
 
-                      <td className="p-3 font-semibold">{item.name}</td>
-                      <td className="p-3 text-black/60">{item.category}</td>
-                      <td className="p-3">
-                        {item.order === null ? (
-                          <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-                            Hidden in app
-                          </span>
-                        ) : (
-                          rankById.get(item.id)
-                        )}
-                      </td>
+                        <tr className={table.row}>
+                          <td className={table.td}>
+                            {item.image ? (
+                              <img src={item.image} alt={item.name} className={table.thumb} />
+                            ) : (
+                              <div className={table.thumbEmpty}>No Img</div>
+                            )}
+                          </td>
 
-                      <td className="p-3">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => {
-                              setEditing(item);
-                              setAdding(false);
-                              setFile(null);
-                              setFormError("");
-                              setForm({
-                                name: item.name,
-                                slug: item.slug,
-                                categoryId: item.categoryId,
-                              });
-                            }}
-                            className="rounded-lg bg-[#ff7a59] px-3 py-1 text-xs text-white"
-                          >
-                            Update
-                          </button>
+                          <td className={`${table.td} font-semibold`}>{item.name}</td>
 
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="rounded-lg border border-red-400 px-3 py-1 text-xs text-red-500 hover:bg-red-500 hover:text-white"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          <td className={table.td}>
+                            {item.order === null ? (
+                              <Badge tone="amber">Hidden in app</Badge>
+                            ) : (
+                              <span className="font-semibold tabular-nums text-black/70">
+                                #{rankById.get(item.id)}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className={table.td}>
+                            <div className={table.actions}>
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  setEditing(item);
+                                  setAdding(false);
+                                  setFile(null);
+                                  setFormError("");
+                                  setForm({
+                                    name: item.name,
+                                    slug: item.slug,
+                                    categoryId: item.categoryId,
+                                  });
+                                }}
+                              >
+                                Update
+                              </Button>
+
+                              <Button
+                                size="sm"
+                                variant="danger"
+                                onClick={() => handleDelete(item.id)}
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
+          )}
 
-            <Pagination total={subCategories.length} page={page} setPage={setPage} />
-          </>
-        )}
-      </section>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            total={subCategories.length}
+            perPage={perPage}
+          />
+        </>
+      )}
 
       {(adding || editing) && (
         <Modal
           title={adding ? "Add Sub Category" : "Update Sub Category"}
+          size="md"
           onClose={closeModal}
+          footer={
+            <>
+              <Button variant="light" onClick={closeModal}>
+                Cancel
+              </Button>
+              <Button onClick={adding ? handleAdd : handleUpdate} loading={btnLoading}>
+                {adding ? "Create" : "Update"}
+              </Button>
+            </>
+          }
         >
+          {formError && (
+            <Alert surface="light" className="mb-4">
+              {formError}
+            </Alert>
+          )}
+
           <Input
             label="Sub Category Name"
             value={form.name}
@@ -423,15 +482,13 @@ export default function Page() {
             }}
           />
 
-          <div className="mt-3">
-            <label className="text-black font-semibold">Category</label>
-            <select
+          <Field label="Category">
+            <SelectInput
               value={form.categoryId}
               onChange={(e) => {
                 setForm({ ...form, categoryId: e.target.value });
                 setFormError("");
               }}
-              className="mt-1 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black"
             >
               <option value="">Select Category</option>
               {categories.map((c) => (
@@ -439,8 +496,8 @@ export default function Page() {
                   {c.name}
                 </option>
               ))}
-            </select>
-          </div>
+            </SelectInput>
+          </Field>
 
           <Input
             label="Slug"
@@ -452,130 +509,50 @@ export default function Page() {
             }}
           />
 
-          <p className="mt-2 text-sm text-[#5f5542]">
+          <p className="mt-3 text-sm text-black/60">
             {adding
               ? "New sub categories are added at the end of their category. Reorder them in Display Order."
               : "Moving to another category places it at the end of that category."}
           </p>
 
-          <div className="mt-4">
-            <label className="text-black font-semibold">Image</label>
-
-            <div className="mt-2 rounded-xl border border-[#ff7a59] bg-white p-3">
-              <div className="flex items-center gap-4">
-                <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-[#ff7a59]/30 bg-[#f7f1e4]">
-                  {previewUrl ? (
-                    <img
-                      src={previewUrl}
-                      alt="Preview"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-[10px] text-black/40">No image</span>
-                  )}
-                </div>
-
-                <div className="flex-1">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      setFile(e.target.files?.[0] || null);
-                      setFormError("");
-                    }}
-                    className="w-full text-sm text-black"
-                  />
-                  <p className="mt-2 text-xs text-black/50">
-                    {file
-                      ? file.name
-                      : editing?.image
-                        ? "Current image will stay unless you choose a new one."
-                        : "Upload an image for this sub category."}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {formError && (
-            <div className="mt-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {formError}
-            </div>
-          )}
-
-          <button
-            onClick={adding ? handleAdd : handleUpdate}
-            disabled={btnLoading}
-            className="mt-6 w-full rounded-xl bg-[#ff7a59] py-3 text-white flex items-center justify-center"
-          >
-            {btnLoading ? (
-              <span className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" />
-            ) : adding ? (
-              "Create"
-            ) : (
-              "Update"
-            )}
-          </button>
+          <ImagePicker
+            label="Image"
+            accept="image/*"
+            previewUrl={previewUrl}
+            note={
+              file
+                ? file.name
+                : editing?.image
+                  ? "Current image will stay unless you choose a new one."
+                  : "Upload an image for this sub category."
+            }
+            onFile={(picked) => {
+              setFile(picked);
+              setFormError("");
+            }}
+          />
         </Modal>
       )}
     </div>
   );
 }
 
-function Modal({ children, title, onClose }: any) {
+/* UI */
+
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
   return (
-    <div className="fixed inset-0 bg-black/70 flex justify-center items-center">
-      <div className="bg-[#e8dcc7] p-6 rounded-3xl w-[90%] max-w-lg">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose}>✖</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Pagination({ total, page, setPage }: any) {
-  const perPage = 12;
-  const totalPages = Math.ceil(total / perPage);
-
-  return (
-    <div className="mt-6 flex justify-between text-[#f3ead7]">
-      <p>
-        Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total}
-      </p>
-
-      <div className="flex gap-2">
-        <button
-          disabled={page === 1}
-          onClick={() => setPage(page - 1)}
-          className="opacity-70 disabled:opacity-30"
-        >
-          Previous
-        </button>
-
-        <button
-          disabled={page === totalPages}
-          onClick={() => setPage(page + 1)}
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function Input({ label, value, onChange, placeholder }: any) {
-  return (
-    <div className="mt-3">
-      <label className="text-black font-semibold">{label}</label>
-      <input
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-xl border border-[#ff7a59] bg-white px-4 py-3 text-black"
-      />
-    </div>
+    <Field label={label}>
+      <TextInput value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+    </Field>
   );
 }

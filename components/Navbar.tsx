@@ -1,18 +1,24 @@
 "use client";
 
 import { signOut } from "firebase/auth";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { auth } from "@/lib/firebaseServices";
-import { LogOut, Loader2, Menu } from "lucide-react";
+import { findMenuEntry } from "@/components/Sidebar";
+import { ChevronRight, LogOut, Loader2, Menu } from "lucide-react";
 import { useState } from "react";
 
 type Props = {
   onMenuClick?: () => void;
+  role?: string | null;
+  email?: string | null;
 };
 
-export default function Navbar({ onMenuClick }: Props) {
+export default function Navbar({ onMenuClick, role, email }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
   const [loading, setLoading] = useState(false);
+
+  const entry = findMenuEntry(pathname);
 
   const handleLogout = async () => {
     try {
@@ -27,38 +33,55 @@ export default function Navbar({ onMenuClick }: Props) {
   };
 
   return (
-    <header className="flex items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5 lg:px-10 lg:py-6">
+    <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-black/85 px-4 backdrop-blur sm:px-6 lg:px-8">
       <div className="flex min-w-0 items-center gap-3">
         <button
           type="button"
           onClick={onMenuClick}
           aria-label="Open menu"
-          className="rounded-xl border border-[#ff6b4a]/60 p-2 text-[#ff6b4a] transition hover:bg-[#ff6b4a]/10 lg:hidden"
+          className="rounded-lg border border-white/15 p-2 text-[#f4ead7] transition hover:border-[#ff6b4a] hover:text-[#ff6b4a] lg:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>
-        <h1 className="truncate text-xl font-bold text-[#f3ead7] sm:text-2xl lg:text-5xl">
-          The Owensboro App
-        </h1>
+
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm">
+          {entry && entry.section !== "Overview" && (
+            <>
+              <span className="hidden text-[#f4ead7]/45 sm:inline">{entry.section}</span>
+              <ChevronRight className="hidden h-4 w-4 shrink-0 text-[#f4ead7]/30 sm:inline" aria-hidden />
+            </>
+          )}
+          <span className="truncate font-semibold text-[#f4ead7]">
+            {entry?.item.name ?? "Dashboard"}
+          </span>
+        </nav>
       </div>
 
-      <button
-        onClick={handleLogout}
-        disabled={loading}
-        className="flex shrink-0 items-center gap-2 rounded-xl border border-[#ff6b4a] bg-black px-3 py-2 text-sm font-semibold text-[#ff6b4a] transition-all duration-200 hover:bg-[#ff6b4a] hover:text-black active:scale-95 disabled:opacity-60 sm:gap-3 sm:rounded-2xl sm:px-5 sm:py-3 sm:text-base lg:px-6 lg:text-lg"
-      >
-        {loading ? (
-          <>
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span className="hidden sm:inline">Logging out...</span>
-          </>
-        ) : (
-          <>
-            <LogOut className="h-5 w-5" />
-            <span className="hidden sm:inline">Logout</span>
-          </>
+      <div className="flex shrink-0 items-center gap-3">
+        {(email || role) && (
+          <div className="hidden min-w-0 text-right leading-tight md:block">
+            {email && (
+              <p className="max-w-55 truncate text-sm text-[#f4ead7]">{email}</p>
+            )}
+            {role && (
+              <p className="text-xs capitalize text-[#f4ead7]/50">{role}</p>
+            )}
+          </div>
         )}
-      </button>
+
+        <button
+          onClick={handleLogout}
+          disabled={loading}
+          className="flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-sm font-medium text-[#f4ead7] transition hover:border-[#ff6b4a] hover:text-[#ff6b4a] disabled:opacity-60"
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <LogOut className="h-4 w-4" />
+          )}
+          <span className="hidden sm:inline">{loading ? "Logging out…" : "Log out"}</span>
+        </button>
+      </div>
     </header>
   );
 }

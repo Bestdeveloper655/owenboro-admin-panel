@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { GalleryHorizontalEnd, Plus } from "lucide-react";
 import {
   collection,
   getDocs,
@@ -14,6 +15,21 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "@/lib/firebaseServices";
 import { deleteStorageFileByUrl } from "@/lib/adminData";
+import {
+  Alert,
+  Button,
+  EmptyState,
+  Field,
+  ImagePicker,
+  LoadingState,
+  Modal,
+  PageHeader,
+  SelectInput,
+  TextInput,
+  cx,
+  table,
+  useObjectUrl,
+} from "@/components/ui";
 
 /* TYPES */
 type Category = { id: string; name: string };
@@ -81,67 +97,79 @@ export default function Page() {
   });
 
   const [error, setError] = useState("");
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState("");
+
+  /* Preview of the picked image file. */
+  const fileUrl = useObjectUrl(file);
 
   /* FETCH */
   useEffect(() => {
     const fetchData = async () => {
-      // No orderBy: it would hide banners without `createdAt`, and those
-      // could then never be edited or deleted. Sorted newest-first below.
-      const bannerSnap = await getDocs(collection(db, "Banner"));
-      const catSnap = await getDocs(collection(db, "Catagories"));
-      const subSnap = await getDocs(collection(db, "SubCatagories"));
-      const prodSnap = await getDocs(collection(db, "Products"));
+      try {
+        // No orderBy: it would hide banners without `createdAt`, and those
+        // could then never be edited or deleted. Sorted newest-first below.
+        const bannerSnap = await getDocs(collection(db, "Banner"));
+        const catSnap = await getDocs(collection(db, "Catagories"));
+        const subSnap = await getDocs(collection(db, "SubCatagories"));
+        const prodSnap = await getDocs(collection(db, "Products"));
 
-      const cats = catSnap.docs.map((d) => ({
-        id: d.id,
-        name: d.data().catagoryName || d.data().name,
-      }));
-
-      const subs = subSnap.docs.map((d) => ({
-        id: d.id,
-        name: d.data().name,
-        categoryId: d.data().catagoriesRef?.id || "",
-      }));
-
-      const prods = prodSnap.docs.map((d) => ({
-        id: d.id,
-        name: d.data().productName,
-        subCategoryId: d.data().subCatagoryRef?.id || "",
-      }));
-
-      const data = bannerSnap.docs.map((d) => {
-        const x = d.data();
-        // The app reads `CatagoryRef` / `SubCatagoryRef`; older panel builds
-        // wrote `categoryRef` / `subCategoryRef`.
-        const catId = (x.CatagoryRef ?? x.categoryRef)?.id || "";
-        const subId = (x.SubCatagoryRef ?? x.subCategoryRef)?.id || "";
-
-        const cat = cats.find((c) => c.id === catId);
-        const sub = subs.find((s) => s.id === subId);
-        const prod = prods.find((p) => p.id === x.productRef?.id);
-
-        return {
+        const cats = catSnap.docs.map((d) => ({
           id: d.id,
-          title: x.bannerName || "",
-          categoryId: catId,
-          subCategoryId: subId,
-          productId: x.productRef?.id || "",
-          category: cat?.name || "",
-          subCategory: sub?.name || "",
-          product: prod?.name || "",
-          image: x.image || "",
-          path: x.path || "",
-          createdAt: x.createdAt?.toDate ? x.createdAt.toDate() : null,
-        };
-      });
+          name: d.data().catagoryName || d.data().name,
+        }));
 
-      data.sort(
-        (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0),
-      );
-      setBanners(data);
-      setCategories(cats);
-      setSubCategories(subs);
-      setProducts(prods);
+        const subs = subSnap.docs.map((d) => ({
+          id: d.id,
+          name: d.data().name,
+          categoryId: d.data().catagoriesRef?.id || "",
+        }));
+
+        const prods = prodSnap.docs.map((d) => ({
+          id: d.id,
+          name: d.data().productName,
+          subCategoryId: d.data().subCatagoryRef?.id || "",
+        }));
+
+        const data = bannerSnap.docs.map((d) => {
+          const x = d.data();
+          // The app reads `CatagoryRef` / `SubCatagoryRef`; older panel builds
+          // wrote `categoryRef` / `subCategoryRef`.
+          const catId = (x.CatagoryRef ?? x.categoryRef)?.id || "";
+          const subId = (x.SubCatagoryRef ?? x.subCategoryRef)?.id || "";
+
+          const cat = cats.find((c) => c.id === catId);
+          const sub = subs.find((s) => s.id === subId);
+          const prod = prods.find((p) => p.id === x.productRef?.id);
+
+          return {
+            id: d.id,
+            title: x.bannerName || "",
+            categoryId: catId,
+            subCategoryId: subId,
+            productId: x.productRef?.id || "",
+            category: cat?.name || "",
+            subCategory: sub?.name || "",
+            product: prod?.name || "",
+            image: x.image || "",
+            path: x.path || "",
+            createdAt: x.createdAt?.toDate ? x.createdAt.toDate() : null,
+          };
+        });
+
+        data.sort(
+          (a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0),
+        );
+        setBanners(data);
+        setCategories(cats);
+        setSubCategories(subs);
+        setProducts(prods);
+      } catch (err) {
+        console.error(err);
+        setListError("Failed to load banners.");
+      } finally {
+        setListLoading(false);
+      }
     };
 
     fetchData();
@@ -349,80 +377,121 @@ export default function Page() {
   };
 
   return (
-    <div className="px-4 pt-6 pb-10 md:px-8">
-      {/* HEADER */}
-      <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
-          Banner
-        </h1>
+    <div>
+      <PageHeader
+        title="Banner"
+        actions={
+          <Button variant="outline" icon={Plus} onClick={() => setAdding(true)}>
+            Add Banner
+          </Button>
+        }
+      />
 
-        <button
-          onClick={() => setAdding(true)}
-          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] sm:self-auto sm:px-5 sm:text-base"
-        >
-          Add Banner
-        </button>
-      </div>
+      {listError && (
+        <Alert className="mb-6" onDismiss={() => setListError("")}>
+          {listError}
+        </Alert>
+      )}
 
       {/* TABLE */}
-      <div className="overflow-x-auto rounded-2xl border border-white/10">
-        <table className="w-full min-w-[800px] text-left">
-          <thead className="bg-[#ece2cb] text-black">
-            <tr>
-              <th className="p-3">Image</th>
-              <th className="p-3">Title</th>
-              <th className="p-3">Category</th>
-              <th className="p-3">SubCategory</th>
-              <th className="p-3">Listing</th>
-              <th className="p-3 text-right">Actions</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {banners.map((b) => (
-              <tr key={b.id} className="border-b bg-[#ece2cb] text-black">
-                <td className="p-3">
-                  <img src={b.image} className="h-14 w-20 rounded-lg" />
-                </td>
-                <td className="p-3 font-semibold">{b.title}</td>
-                <td className="p-3">{b.category}</td>
-                <td className="p-3">{b.subCategory}</td>
-                <td className="p-3">{b.product}</td>
-
-                <td className="p-3 text-right">
-                  <button
-                    onClick={() => setEditing(b)}
-                    className="bg-[#ff7a59] px-3 py-1 text-white rounded mr-2"
-                  >
-                    Update
-                  </button>
-                  <button
-                    onClick={() => setDeleting(b)}
-                    className="border border-red-400 px-3 py-1 text-red-500 rounded"
-                  >
-                    Delete
-                  </button>
-                </td>
+      {listLoading ? (
+        <LoadingState label="Loading banners…" />
+      ) : banners.length === 0 ? (
+        <EmptyState icon={GalleryHorizontalEnd} title="No banners yet." />
+      ) : (
+        <div className={table.wrap}>
+          <table className={`${table.table} min-w-[800px]`}>
+            <thead className={table.thead}>
+              <tr>
+                <th className={table.th}>Image</th>
+                <th className={table.th}>Title</th>
+                <th className={table.th}>Category</th>
+                <th className={table.th}>Sub Category</th>
+                <th className={table.th}>Listing</th>
+                <th className={`${table.th} text-right`}>Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+
+            <tbody>
+              {banners.map((b) => (
+                <tr key={b.id} className={table.row}>
+                  <td className={table.td}>
+                    {b.image ? (
+                      <img src={b.image} alt="" className={table.thumbWide} />
+                    ) : (
+                      <div className={table.thumbWideEmpty}>No Img</div>
+                    )}
+                  </td>
+                  <td className={table.td}>
+                    <TextCell value={b.title} className="font-semibold" />
+                  </td>
+                  <td className={table.td}>
+                    <TextCell value={b.category} />
+                  </td>
+                  <td className={table.td}>
+                    <TextCell value={b.subCategory} />
+                  </td>
+                  <td className={table.td}>
+                    <TextCell value={b.product} />
+                  </td>
+
+                  <td className={table.td}>
+                    <div className={table.actions}>
+                      <Button size="sm" onClick={() => setEditing(b)}>
+                        Update
+                      </Button>
+                      <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => {
+                            setError("");
+                            setDeleting(b);
+                          }}
+                        >
+                        Delete
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* ADD / EDIT MODAL */}
       {(adding || editing) && (
-        <Modal title="Banner" onClose={closeModal}>
-          {error && <div className="text-red-500 text-sm">{error}</div>}
+        <Modal
+          title="Banner"
+          size="md"
+          onClose={closeModal}
+          footer={
+            <>
+              <Button variant="light" onClick={closeModal}>
+                Cancel
+              </Button>
+              <Button onClick={adding ? handleAdd : handleUpdate} loading={loading}>
+                {loading ? "Saving…" : "Save"}
+              </Button>
+            </>
+          }
+        >
+          {error && (
+            <Alert surface="light" className="mb-4">
+              {error}
+            </Alert>
+          )}
 
           <Input
             label="Title"
             value={form.title}
-            onChange={(v: any) => setForm({ ...form, title: v })}
+            onChange={(v: string) => setForm({ ...form, title: v })}
           />
 
           <Select
+            label="Category"
             value={form.categoryId}
-            onChange={(v: any) =>
+            onChange={(v: string) =>
               setForm({
                 ...form,
                 categoryId: v,
@@ -435,67 +504,59 @@ export default function Page() {
           />
 
           <Select
+            label="Sub Category"
             value={form.subCategoryId}
-            onChange={(v: any) =>
+            onChange={(v: string) =>
               setForm({ ...form, subCategoryId: v, productId: "" })
             }
             options={filteredSubCategories}
-            placeholder="Select SubCategory (optional)"
+            placeholder="Select Sub Category (optional)"
           />
 
           <Select
+            label="Listing"
             value={form.productId}
-            onChange={(v: any) => setForm({ ...form, productId: v })}
+            onChange={(v: string) => setForm({ ...form, productId: v })}
             options={filteredProducts}
             placeholder="Select Listing (optional)"
           />
 
-          <div className="mt-4 border border-[#ff7a59] rounded-xl p-4">
-            <input
-              type="file"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-            />
-          </div>
-
-          <button
-            onClick={adding ? handleAdd : handleUpdate}
-            className="mt-6 w-full bg-[#ff7a59] text-white py-3 rounded-xl"
-          >
-            {loading ? "Saving..." : "Save"}
-          </button>
+          <ImagePicker
+            shape="wide"
+            label="Image"
+            previewUrl={fileUrl || editing?.image || ""}
+            note={file?.name}
+            onFile={(picked) => setFile(picked)}
+          />
         </Modal>
       )}
 
       {/* DELETE MODAL */}
       {deleting && (
-        <Modal title="Delete Banner" onClose={() => setDeleting(null)}>
-          <div className="space-y-4">
-            <p className="text-sm text-gray-700">
-              Are you sure you want to delete{" "}
-              <span className="font-semibold">
-                {deleting.title || "this banner"}
-              </span>
-              ?
-            </p>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setDeleting(null)}
-                disabled={deleteLoading}
-                className="px-4 py-2 rounded-xl border border-gray-300"
-              >
+        <Modal
+          title="Delete Banner"
+          size="sm"
+          onClose={() => setDeleting(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setDeleting(null)} disabled={deleteLoading}>
                 Cancel
-              </button>
-
-              <button
-                onClick={confirmDelete}
-                disabled={deleteLoading}
-                className="px-4 py-2 rounded-xl bg-red-500 text-white disabled:opacity-60"
-              >
-                {deleteLoading ? "Deleting..." : "Confirm Delete"}
-              </button>
-            </div>
-          </div>
+              </Button>
+              <Button variant="danger-solid" onClick={confirmDelete} loading={deleteLoading}>
+                {deleteLoading ? "Deleting…" : "Confirm Delete"}
+              </Button>
+            </>
+          }
+        >
+          {error && (
+            <Alert surface="light" className="mb-4">
+              {error}
+            </Alert>
+          )}
+          <p>
+            Are you sure you want to delete{" "}
+            <span className="font-semibold">{deleting.title || "this banner"}</span>?
+          </p>
         </Modal>
       )}
     </div>
@@ -503,46 +564,56 @@ export default function Page() {
 }
 
 /* UI */
-function Modal({ children, title, onClose }: any) {
+
+/* Table text that truncates long values and shows a dash when empty. */
+function TextCell({ value, className }: { value: string; className?: string }) {
+  if (!value) return <span className="text-black/35">—</span>;
   return (
-    <div className="fixed inset-0 bg-black/70 flex justify-center items-center">
-      <div className="bg-[#e8dcc7] p-6 rounded-3xl w-[90%] max-w-lg text-black">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose}>✖</button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <span className={cx("block max-w-[220px] truncate", className)} title={value}>
+      {value}
+    </span>
   );
 }
 
-function Input({ label, value, onChange }: any) {
+function Input({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
   return (
-    <div className="mt-3">
-      <label className="font-semibold">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full border border-[#ff7a59] rounded-xl p-3 mt-1"
-      />
-    </div>
+    <Field label={label}>
+      <TextInput value={value} onChange={(e) => onChange(e.target.value)} />
+    </Field>
   );
 }
 
-function Select({ value, onChange, options, placeholder }: any) {
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ id: string; name: string }>;
+  placeholder: string;
+}) {
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full border border-[#ff7a59] rounded-xl p-3 mt-3"
-    >
-      <option value="">{placeholder}</option>
-      {options.map((o: any) => (
-        <option key={o.id} value={o.id}>
-          {o.name}
-        </option>
-      ))}
-    </select>
+    <Field label={label}>
+      <SelectInput value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{placeholder}</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </SelectInput>
+    </Field>
   );
 }

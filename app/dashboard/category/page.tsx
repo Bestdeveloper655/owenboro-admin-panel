@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { FolderTree, Plus } from "lucide-react";
 import {
   collection,
   getDocs,
@@ -22,6 +23,21 @@ import {
   sortByOrder,
   writeSequence,
 } from "@/lib/adminData";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  ImagePicker,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Pagination,
+  TextInput,
+  table,
+  useObjectUrl,
+} from "@/components/ui";
 
 /* GLOBAL IMAGE CACHE */
 const imageCache = new Map<string, string>();
@@ -37,6 +53,8 @@ type Category = {
 
 export default function Page() {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState("");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
   const [deleting, setDeleting] = useState<Category | null>(null);
@@ -46,6 +64,9 @@ export default function Page() {
   const [formError, setFormError] = useState("");
 
   const [saving, setSaving] = useState(false);
+
+  /* Preview of the picked icon file. */
+  const fileUrl = useObjectUrl(file);
 
   const preloadingRef = useRef<Set<string>>(new Set());
 
@@ -80,24 +101,32 @@ export default function Page() {
 
   /* FETCH */
   const fetchData = async () => {
-    const snap = await getDocs(collection(db, "Catagories"));
+    try {
+      const snap = await getDocs(collection(db, "Catagories"));
 
-    const data: Category[] = snap.docs.map((d) => {
-      const x = d.data();
-      return {
-        id: d.id,
-        name: x.catagoryName,
-        slug: x.slug || "",
-        image: x.image || "",
-        order: asOrder(x.order),
-      };
-    });
+      const data: Category[] = snap.docs.map((d) => {
+        const x = d.data();
+        return {
+          id: d.id,
+          name: x.catagoryName,
+          slug: x.slug || "",
+          image: x.image || "",
+          order: asOrder(x.order),
+        };
+      });
 
-    data.forEach((item) => {
-      if (item.image) preloadImage(item.image);
-    });
+      data.forEach((item) => {
+        if (item.image) preloadImage(item.image);
+      });
 
-    setCategories(sortByOrder(data, (c) => c.order));
+      setCategories(sortByOrder(data, (c) => c.order));
+      setListError("");
+    } catch (err) {
+      console.error(err);
+      setListError("Failed to load categories.");
+    } finally {
+      setListLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -256,106 +285,94 @@ export default function Page() {
   };
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
-            Categories
-          </h1>
-          <p className="mt-1 text-sm text-[#e8dcc7]/70">
-            Change the order categories appear in the app in{" "}
-            <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
-              Display Order
-            </Link>
-            .
-          </p>
-        </div>
+    <div>
+      <PageHeader
+        title="Categories"
+        actions={
+          <Button variant="outline" icon={Plus} onClick={openAddModal}>
+            Add Category
+          </Button>
+        }
+      >
+        <p className="mt-1 text-sm text-[#e8dcc7]/70">
+          Change the order categories appear in the app in{" "}
+          <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
+            Display Order
+          </Link>
+          .
+        </p>
+      </PageHeader>
 
-        <button
-          onClick={openAddModal}
-          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] sm:self-auto sm:px-5 sm:text-base"
-        >
-          Add Category
-        </button>
-      </div>
+      {listError && (
+        <Alert className="mb-6" onDismiss={() => setListError("")}>
+          {listError}
+        </Alert>
+      )}
 
-      <div className="overflow-x-auto rounded-2xl border border-white/10">
-        <table className="w-full min-w-[700px] text-left">
-          <thead className="bg-[#ece2cb] text-black">
-            <tr>
-              <th className="p-3">Image</th>
-              <th className="p-3">Name</th>
-              <th className="p-3">Slug</th>
-              <th className="p-3">Position</th>
-              <th className="p-3 text-right min-w-[170px]">Actions</th>
-            </tr>
-          </thead>
+      {listLoading ? (
+        <LoadingState label="Loading categories…" />
+      ) : categories.length === 0 ? (
+        <EmptyState icon={FolderTree} title="No categories yet." />
+      ) : (
+        <div className={table.wrap}>
+          <table className={`${table.table} min-w-[700px]`}>
+            <thead className={table.thead}>
+              <tr>
+                <th className={table.th}>Image</th>
+                <th className={table.th}>Name</th>
+                <th className={table.th}>Slug</th>
+                <th className={table.th}>Position</th>
+                <th className={`${table.th} text-right`}>Actions</th>
+              </tr>
+            </thead>
 
-          <tbody>
-            {paginatedData.map((c) => (
-              <CategoryRow
-                key={c.id}
-                c={c}
-                rank={categories.indexOf(c) + 1}
-                setEditing={openEditModal}
-                setDeleting={setDeleting}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {totalPages > 1 && (
-        <div className="mt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-[#f3ead7]">
-          <p className="text-sm text-[#f3ead7]/70">
-            Showing {(page - 1) * perPage + 1}–
-            {Math.min(page * perPage, categories.length)} of {categories.length}
-          </p>
-
-          <div className="flex gap-2">
-            <button
-              disabled={page === 1}
-              onClick={() => setPage(page - 1)}
-              className="px-3 py-1 border border-white/10 rounded-lg disabled:opacity-30"
-            >
-              Prev
-            </button>
-
-            {Array.from({ length: totalPages }).map((_, i) => {
-              const p = i + 1;
-
-              if (p !== 1 && p !== totalPages && Math.abs(p - page) > 1) {
-                return null;
-              }
-
-              return (
-                <button
-                  key={p}
-                  onClick={() => setPage(p)}
-                  className={`px-3 py-1 rounded-lg ${
-                    page === p
-                      ? "bg-[#ff7a59] text-white"
-                      : "border border-white/10"
-                  }`}
-                >
-                  {p}
-                </button>
-              );
-            })}
-
-            <button
-              disabled={page === totalPages}
-              onClick={() => setPage(page + 1)}
-              className="px-3 py-1 border border-white/10 rounded-lg disabled:opacity-30"
-            >
-              Next
-            </button>
-          </div>
+            <tbody>
+              {paginatedData.map((c) => (
+                <CategoryRow
+                  key={c.id}
+                  c={c}
+                  rank={categories.indexOf(c) + 1}
+                  setEditing={openEditModal}
+                  setDeleting={setDeleting}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
+      {categories.length > 0 && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          total={categories.length}
+          perPage={perPage}
+        />
+      )}
+
       {(adding || editing) && (
-        <Modal title={adding ? "Add Category" : "Update Category"} onClose={closeModal}>
+        <Modal
+          title={adding ? "Add Category" : "Update Category"}
+          size="md"
+          onClose={closeModal}
+          footer={
+            <>
+              <Button variant="light" onClick={closeModal}>
+                Cancel
+              </Button>
+              <Button onClick={adding ? handleAdd : handleUpdate} loading={saving}>
+                {saving ? "Saving…" : adding ? "Save Category" : "Update Category"}
+              </Button>
+            </>
+          }
+        >
+          {formError && (
+            <Alert surface="light" className="mb-4">
+              {formError}
+            </Alert>
+          )}
+
           <Input
             label="Name"
             value={form.name}
@@ -375,113 +392,103 @@ export default function Page() {
           />
 
           {adding && (
-            <p className="mt-2 text-sm text-[#5f5542]">
+            <p className="mt-3 text-sm text-black/60">
               New categories are added at the end. Reorder them in Display Order.
             </p>
           )}
 
-          <label className="mt-4 block font-semibold">Icon image (SVG or PNG)</label>
-          <input
-            type="file"
+          <ImagePicker
+            label="Icon image (SVG or PNG)"
             accept="image/*"
-            onChange={(e) => {
-              setFile(e.target.files?.[0] || null);
+            previewUrl={fileUrl || editing?.image || ""}
+            note={file?.name}
+            onFile={(picked) => {
+              setFile(picked);
               setFormError("");
             }}
-            className="mt-4"
           />
-
-          {formError && (
-            <div className="mt-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {formError}
-            </div>
-          )}
-
-          <button
-            onClick={adding ? handleAdd : handleUpdate}
-            disabled={saving}
-            className="mt-6 w-full bg-[#ff7a59] text-white py-3 rounded-xl flex items-center justify-center gap-2 disabled:opacity-60"
-          >
-            {saving && (
-              <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-            )}
-            {saving ? "Saving..." : adding ? "Save Category" : "Update Category"}
-          </button>
         </Modal>
       )}
 
       {deleting && (
-        <Modal title="Delete category" onClose={() => setDeleting(null)}>
+        <Modal
+          title="Delete Category"
+          size="sm"
+          onClose={() => setDeleting(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger-solid" onClick={confirmDelete} loading={saving}>
+                {saving ? "Deleting…" : "Delete"}
+              </Button>
+            </>
+          }
+        >
           <p>
-            Delete <b>{deleting.name}</b>? Its sub categories and listings are
-            not deleted, but they will no longer be reachable from this category
-            in the app.
+            Delete <span className="font-semibold">{deleting.name}</span>?
           </p>
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={() => setDeleting(null)}
-              className="rounded-xl border border-black/15 px-4 py-2"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDelete}
-              disabled={saving}
-              className="rounded-xl bg-red-500 px-4 py-2 text-white disabled:opacity-60"
-            >
-              {saving ? "Deleting…" : "Delete"}
-            </button>
-          </div>
+          <p className="mt-2 text-sm text-black/60">
+            Its sub categories and listings are not deleted, but they will no longer be
+            reachable from this category in the app.
+          </p>
         </Modal>
       )}
     </div>
   );
 }
 
-/* 🔥 MEMO ROW */
+/* MEMO ROW */
 const CategoryRow = React.memo(function CategoryRow({
   c,
   rank,
   setEditing,
   setDeleting,
-}: any) {
+}: {
+  c: Category;
+  rank: number;
+  setEditing: (category: Category) => void;
+  setDeleting: (category: Category) => void;
+}) {
   return (
-    <tr className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]">
-      <td className="p-3">
-        <img
-          src={imageCache.get(c.image) || c.image}
-          alt={c.name}
-          className="h-12 w-12 rounded-lg object-cover"
-        />
-      </td>
-
-      <td className="p-3 font-semibold">{c.name}</td>
-      <td className="p-3">{c.slug}</td>
-      <td className="p-3">
-        {c.order === null ? (
-          <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
-            Hidden in app
-          </span>
+    <tr className={table.row}>
+      <td className={table.td}>
+        {c.image ? (
+          <img src={imageCache.get(c.image) || c.image} alt={c.name} className={table.thumb} />
         ) : (
-          rank
+          <div className={table.thumbEmpty}>No Img</div>
         )}
       </td>
 
-      <td className="p-3 min-w-[170px]">
-        <div className="flex justify-end items-center gap-2 whitespace-nowrap">
-          <button
-            onClick={() => setEditing(c)}
-            className="bg-[#ff7a59] px-3 py-1 text-white rounded"
-          >
-            Update
-          </button>
+      <td className={`${table.td} font-semibold`}>{c.name}</td>
 
-          <button
-            onClick={() => setDeleting(c)}
-            className="border border-red-400 px-3 py-1 text-red-500"
-          >
+      <td className={`${table.td} text-black/60`}>
+        {c.slug ? (
+          <span className="block max-w-[280px] truncate" title={c.slug}>
+            {c.slug}
+          </span>
+        ) : (
+          "—"
+        )}
+      </td>
+
+      <td className={table.td}>
+        {c.order === null ? (
+          <Badge tone="amber">Hidden in app</Badge>
+        ) : (
+          <span className="font-semibold tabular-nums text-black/70">#{rank}</span>
+        )}
+      </td>
+
+      <td className={table.td}>
+        <div className={table.actions}>
+          <Button size="sm" onClick={() => setEditing(c)}>
+            Update
+          </Button>
+          <Button size="sm" variant="danger" onClick={() => setDeleting(c)}>
             Delete
-          </button>
+          </Button>
         </div>
       </td>
     </tr>
@@ -489,31 +496,21 @@ const CategoryRow = React.memo(function CategoryRow({
 });
 
 /* UI */
-function Modal({ children, title, onClose }: any) {
+
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
   return (
-    <div className="fixed inset-0 bg-black/70 flex justify-center items-center">
-      <div className="bg-[#e8dcc7] p-6 rounded-3xl w-[90%] max-w-lg text-black">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose}>✖</button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <Field label={label}>
+      <TextInput value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+    </Field>
   );
 }
-
-function Input({ label, value, onChange, placeholder }: any) {
-  return (
-    <div className="mt-3">
-      <label className="font-semibold">{label}</label>
-      <input
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full border border-[#ff7a59] rounded-xl p-3 mt-1"
-      />
-    </div>
-  );
-}
-

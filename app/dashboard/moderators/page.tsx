@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Lock, SearchX, ShieldCheck, UserMinus, UserPlus, UserSearch } from "lucide-react";
 import {
   collection,
   doc,
@@ -12,6 +13,17 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebaseServices";
 import { useUserRole } from "@/lib/useUserRole";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  LoadingState,
+  PageHeader,
+  SearchInput,
+  SectionHeading,
+  Toolbar,
+  table,
+} from "@/components/ui";
 
 type DirUser = {
   id: string;
@@ -145,139 +157,136 @@ export default function Page() {
   };
 
   if (roleLoading) {
-    return (
-      <div className="px-6 pt-6 pb-10 text-[#e8dcc7]">Checking access…</div>
-    );
+    return <LoadingState label="Checking access…" />;
   }
 
   if (!isAdmin) {
     return (
-      <div className="px-6 pt-6 pb-10">
-        <div className="mx-auto max-w-xl rounded-3xl border border-red-500/40 bg-[#0a0a0a] p-10 text-center">
-          <h1 className="text-3xl font-bold text-red-400">Admins only</h1>
-          <p className="mt-3 text-[#e8dcc7]">
-            Only admins can manage moderators. Ask an admin if you need access.
-          </p>
-        </div>
+      <div>
+        <PageHeader title="Moderators" />
+        <EmptyState
+          icon={Lock}
+          title="Admins only"
+          description="Only admins can manage moderators. Ask an admin if you need access."
+          className="mx-auto max-w-xl"
+        />
       </div>
     );
   }
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      <div className="mb-6 sm:mb-8">
-        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
-          Moderators
-        </h1>
-        <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
-          Promote trusted users to moderators so they can help review reports.
-          Only admins can add or remove moderators.
-        </p>
-      </div>
+    <div>
+      <PageHeader
+        title="Moderators"
+        description="Promote trusted users to moderators so they can help review reports. Only admins can add or remove moderators."
+      />
 
-      <section className="mb-8 rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
-        <h2 className="mb-4 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
-          Add a moderator
-        </h2>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search users by name, email, or UID…"
-          className="w-full rounded-xl border border-[#ff7a59]/40 bg-[#1a1a1a] p-3 text-[#f3ead7] placeholder:text-[#f3ead7]/50 outline-none focus:border-[#ff7a59]"
-        />
+      <section className="mb-10">
+        <SectionHeading title="Add a moderator" />
+
+        <Toolbar>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search users by name, email, or UID…"
+          />
+        </Toolbar>
 
         {allLoading ? (
-          <p className="mt-4 text-[#f3ead7]/70">Loading users…</p>
+          <LoadingState label="Loading users…" />
         ) : search.trim() === "" ? (
-          <p className="mt-4 text-[#f3ead7]/70">
-            Start typing to find a user to promote.
-          </p>
+          <EmptyState icon={UserSearch} title="Start typing to find a user to promote." />
         ) : candidates.length === 0 ? (
-          <p className="mt-4 text-[#f3ead7]/70">
-            No matching users found (admins and existing moderators are hidden).
-          </p>
+          <EmptyState
+            icon={SearchX}
+            title="No matching users found (admins and existing moderators are hidden)."
+          />
         ) : (
-          <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
-            <table className="w-full min-w-[600px] text-left">
-              <thead className="bg-[#ece2cb] text-black">
-                <tr>
-                  <th className="p-3">Name</th>
-                  <th className="p-3">Email</th>
-                  <th className="p-3">UID</th>
-                  <th className="p-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((u) => (
-                  <tr
-                    key={u.id}
-                    className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
-                  >
-                    <td className="p-3 font-semibold">{u.name}</td>
-                    <td className="p-3 text-[#ff7a59]">{u.email || "-"}</td>
-                    <td className="p-3 text-xs">{u.uid}</td>
-                    <td className="p-3 text-right">
-                      <button
-                        disabled={busyId === u.id}
-                        onClick={() => promote(u)}
-                        className="rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50"
-                      >
-                        {busyId === u.id ? "Promoting…" : "Promote"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <UserTable
+            users={candidates}
+            action={(u) => (
+              <Button
+                size="sm"
+                variant="success"
+                icon={UserPlus}
+                loading={busyId === u.id}
+                onClick={() => promote(u)}
+              >
+                {busyId === u.id ? "Promoting…" : "Promote"}
+              </Button>
+            )}
+          />
         )}
       </section>
 
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
-        <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl lg:text-3xl">
-          Current moderators ({moderators.length})
-        </h2>
+      <section>
+        <SectionHeading
+          title={
+            <span className="inline-flex items-center gap-2">
+              Current moderators
+              <Badge tone="dark">{moderators.length}</Badge>
+            </span>
+          }
+        />
 
         {modsLoading ? (
-          <p className="text-[#f3ead7]">Loading…</p>
+          <LoadingState label="Loading…" />
         ) : moderators.length === 0 ? (
-          <p className="text-[#f3ead7]/70">No moderators yet.</p>
+          <EmptyState icon={ShieldCheck} title="No moderators yet." />
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-white/10">
-            <table className="w-full min-w-[600px] text-left">
-              <thead className="bg-[#ece2cb] text-black">
-                <tr>
-                  <th className="p-3">Name</th>
-                  <th className="p-3">Email</th>
-                  <th className="p-3">UID</th>
-                  <th className="p-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {moderators.map((u) => (
-                  <tr
-                    key={u.id}
-                    className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
-                  >
-                    <td className="p-3 font-semibold">{u.name}</td>
-                    <td className="p-3 text-[#ff7a59]">{u.email || "-"}</td>
-                    <td className="p-3 text-xs">{u.uid}</td>
-                    <td className="p-3 text-right">
-                      <button
-                        disabled={busyId === u.id}
-                        onClick={() => demote(u)}
-                        className="rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {busyId === u.id ? "Removing…" : "Remove"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <UserTable
+            users={moderators}
+            action={(u) => (
+              <Button
+                size="sm"
+                variant="danger"
+                icon={UserMinus}
+                loading={busyId === u.id}
+                onClick={() => demote(u)}
+              >
+                {busyId === u.id ? "Removing…" : "Remove"}
+              </Button>
+            )}
+          />
         )}
       </section>
+    </div>
+  );
+}
+
+/* Name / Email / UID table shared by the search results and the current
+ * moderators list; `action` renders the row's button. */
+function UserTable({
+  users,
+  action,
+}: {
+  users: DirUser[];
+  action: (u: DirUser) => ReactNode;
+}) {
+  return (
+    <div className={table.wrap}>
+      <table className={`${table.table} min-w-[600px]`}>
+        <thead className={table.thead}>
+          <tr>
+            <th className={table.th}>Name</th>
+            <th className={table.th}>Email</th>
+            <th className={table.th}>UID</th>
+            <th className={`${table.th} text-right`}>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((u) => (
+            <tr key={u.id} className={table.row}>
+              <td className={`${table.td} font-semibold`}>{u.name}</td>
+              <td className={`${table.td} text-black/70`}>{u.email || "-"}</td>
+              <td className={`${table.td} font-mono text-xs text-black/55`}>{u.uid}</td>
+              <td className={table.td}>
+                <div className={table.actions}>{action(u)}</div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

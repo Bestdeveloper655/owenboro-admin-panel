@@ -1,8 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Download, Mail } from "lucide-react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebaseServices";
+import {
+  Button,
+  EmptyState,
+  LoadingState,
+  PageHeader,
+  Pagination,
+  SearchInput,
+  Segmented,
+  Toolbar,
+  table,
+} from "@/components/ui";
 
 // Users pick a "newsletter / promotional messages" checkbox when creating their
 // account on the mobile app. That choice is stored on the Users doc as
@@ -130,145 +142,92 @@ export default function Page() {
   };
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      {/* HEADER */}
-      <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl lg:text-5xl">
-            Newsletter Opt-ins
-          </h1>
-          <p className="mt-2 text-base text-[#e8dcc7] sm:text-lg">
-            Users who accepted the newsletter / promotional messages checkbox
-            when creating their account.
-          </p>
-        </div>
-        <button
-          onClick={exportCSV}
-          disabled={filtered.length === 0}
-          className="self-start rounded-xl border border-[#ff7a59] px-5 py-2 text-sm font-semibold text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white disabled:opacity-40"
-        >
-          Export CSV
-        </button>
-      </div>
-
-      {/* SUMMARY CARDS */}
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {TABS.map((t) => (
-          <button
-            key={t.value}
-            onClick={() => setTab(t.value)}
-            className={`rounded-2xl border p-4 text-left transition ${
-              tab === t.value
-                ? "border-[#ff7a59] bg-[#ff7a59]/15"
-                : "border-white/10 bg-[#0a0a0a] hover:border-[#ff7a59]/50"
-            }`}
+    <div>
+      <PageHeader
+        title="Newsletter Opt-ins"
+        description="Users who accepted the newsletter / promotional messages checkbox when creating their account."
+        actions={
+          <Button
+            variant="outline"
+            icon={Download}
+            onClick={exportCSV}
+            disabled={filtered.length === 0}
           >
-            <p className="text-sm text-[#e8dcc7]/80">{t.label}</p>
-            <p className="mt-1 text-3xl font-bold text-[#ff7a59]">
-              {counts[t.value]}
-            </p>
-          </button>
-        ))}
-      </div>
+            Export CSV
+          </Button>
+        }
+      />
 
-      {/* SEARCH */}
-      <div className="relative mb-6 max-w-xl">
-        <input
+      <Toolbar>
+        <SearchInput
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
           placeholder="Search by name, email, phone or UID…"
-          className="w-full rounded-xl border border-white/15 bg-[#0a0a0a] py-3 pl-4 pr-10 text-white outline-none placeholder:text-white/40 focus:border-[#ff7a59]"
+          width="w-full sm:w-96"
         />
-        {search && (
-          <button
-            onClick={() => setSearch("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
-            aria-label="Clear search"
-          >
-            ✕
-          </button>
-        )}
-      </div>
 
-      {/* TABLE */}
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
-        <h2 className="mb-6 text-xl font-bold text-[#ff7a59] sm:text-2xl">
-          {TABS.find((t) => t.value === tab)?.label} ({filtered.length}
-          {search ? ` of ${counts[tab]}` : ""})
-        </h2>
+        <Segmented<Tab>
+          value={tab}
+          onChange={setTab}
+          options={TABS.map((t) => ({ value: t.value, label: t.label, count: counts[t.value] }))}
+        />
+      </Toolbar>
 
-        {loading ? (
-          <p className="text-[#f3ead7]">Loading...</p>
-        ) : filtered.length === 0 ? (
-          <p className="text-[#f3ead7]/70">
-            {search
-              ? `No users match “${search.trim()}”.`
-              : "No users in this category."}
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto rounded-2xl border border-white/10">
-              <table className="w-full min-w-[720px] text-left">
-                <thead className="bg-[#ece2cb] text-black">
-                  <tr>
-                    <th className="p-3">Name</th>
-                    <th className="p-3">Email</th>
-                    <th className="p-3">Phone</th>
-                    <th className="p-3">UID</th>
-                    <th className="p-3">Signed up</th>
+      {/* LIST */}
+      {loading ? (
+        <LoadingState label="Loading subscribers…" />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={Mail}
+          title={search ? `No users match “${search.trim()}”.` : "No users in this category."}
+        />
+      ) : (
+        <>
+          <div className={table.wrap}>
+            <table className={`${table.table} min-w-[720px]`}>
+              <thead className={table.thead}>
+                <tr>
+                  <th className={table.th}>Name</th>
+                  <th className={table.th}>Email</th>
+                  <th className={table.th}>Phone</th>
+                  <th className={table.th}>UID</th>
+                  <th className={table.th}>Signed up</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((s) => (
+                  <tr key={s.id} className={table.row}>
+                    <td className={`${table.td} font-semibold`}>{s.name}</td>
+                    <td className={`${table.td} text-black/70`}>{s.email || "-"}</td>
+                    <td className={`${table.td} whitespace-nowrap`}>{s.phone || "-"}</td>
+                    <td className={`${table.td} font-mono text-xs text-black/55`}>{s.uid}</td>
+                    <td className={`${table.td} whitespace-nowrap text-black/60`}>
+                      {fmtDate(s.createdAt)}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {paginated.map((s) => (
-                    <tr
-                      key={s.id}
-                      className="border-b bg-[#ece2cb] text-black hover:bg-[#f5ecd7]"
-                    >
-                      <td className="p-3 font-semibold">{s.name}</td>
-                      <td className="p-3 text-[#ff7a59]">{s.email || "-"}</td>
-                      <td className="p-3">{s.phone || "-"}</td>
-                      <td className="p-3 text-xs">{s.uid}</td>
-                      <td className="p-3 text-black/60">
-                        {fmtDate(s.createdAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-            {/* PAGINATION */}
-            {totalPages > 1 && (
-              <div className="mt-8 flex flex-col items-center justify-between gap-4 text-[#f3ead7] md:flex-row">
-                <p className="text-sm text-[#f3ead7]/70">
-                  Showing {(page - 1) * perPage + 1}–
-                  {Math.min(page * perPage, filtered.length)} of{" "}
-                  {filtered.length}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    disabled={page === 1}
-                    onClick={() => setPage(page - 1)}
-                    className="rounded-lg border border-white/10 px-3 py-1 disabled:opacity-30"
-                  >
-                    Prev
-                  </button>
-                  <span className="px-3 py-1">
-                    {page} / {totalPages}
-                  </span>
-                  <button
-                    disabled={page === totalPages}
-                    onClick={() => setPage(page + 1)}
-                    className="rounded-lg border border-white/10 px-3 py-1 disabled:opacity-30"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </section>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            total={filtered.length}
+            perPage={perPage}
+            extra={
+              search && (
+                <span className="text-[#f3ead7]/50">
+                  {" "}
+                  · {counts[tab]} {TABS.find((t) => t.value === tab)?.label.toLowerCase()}
+                </span>
+              )
+            }
+          />
+        </>
+      )}
     </div>
   );
 }
+

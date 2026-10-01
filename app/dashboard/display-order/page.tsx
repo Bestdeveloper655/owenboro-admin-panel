@@ -2,10 +2,23 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
+import { ListOrdered, MousePointerClick } from "lucide-react";
 
 import { db } from "@/lib/firebaseServices";
 import { asOrder, sortByOrder, writeSequence } from "@/lib/adminData";
 import SortableList from "@/components/SortableList";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  LoadingState,
+  PageHeader,
+  Segmented,
+  SelectInput,
+  Toolbar,
+} from "@/components/ui";
 
 type Row = {
   id: string;
@@ -154,111 +167,107 @@ export default function Page() {
     !loading && (!needsCategory || categoryId) && (!needsSubCategory || subCategoryId);
 
   return (
-    <div className="px-2 pt-4 pb-8 sm:px-6 sm:pt-6 sm:pb-10">
-      <div className="mb-6 sm:mb-8">
-        <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">Display Order</h1>
-        <p className="mt-2 max-w-3xl text-base text-[#e8dcc7] sm:text-lg">
-          Drag to set the order categories, sub categories and listings appear
-          in the app. Changes save as soon as you drop. The first category is
-          the one shown in the tab browser at the top of the home page.
-        </p>
-      </div>
+    <div>
+      <PageHeader
+        title="Display Order"
+        description="Drag to set the order categories, sub categories and listings appear in the app. Changes save as soon as you drop. The first category is the one shown in the tab browser at the top of the home page."
+      />
 
-      <div className="mb-5 inline-flex rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => {
-              setTab(t.key);
-              setNotice("");
-              setError("");
-            }}
-            className={`rounded-lg px-3 py-1.5 transition sm:px-4 ${
-              tab === t.key ? "bg-[#ff7a59] text-white" : "text-[#f3ead7]/80 hover:text-[#ff7a59]"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Toolbar>
+        <Segmented<Tab>
+          value={tab}
+          onChange={(next) => {
+            setTab(next);
+            setNotice("");
+            setError("");
+          }}
+          options={TABS.map((t) => ({ value: t.key, label: t.label }))}
+        />
+      </Toolbar>
 
       {needsCategory && (
-        <div className="mb-5 grid max-w-2xl gap-3 sm:grid-cols-2">
-          <PickerSelect
-            label="Category"
-            value={categoryId}
-            onChange={(v) => {
-              setCategoryId(v);
-              setSubCategoryId("");
-              setNotice("");
-            }}
-            placeholder="Choose a category"
-            options={sortedCategories}
-          />
-          {tab === "listings" && (
+        <Card className="mb-6">
+          <div className="grid max-w-2xl gap-4 sm:grid-cols-2">
             <PickerSelect
-              label="Sub category"
-              value={subCategoryId}
+              label="Category"
+              value={categoryId}
               onChange={(v) => {
-                setSubCategoryId(v);
+                setCategoryId(v);
+                setSubCategoryId("");
                 setNotice("");
               }}
-              placeholder={
-                !categoryId
-                  ? "Choose a category first"
-                  : categoryHasSubs
-                    ? "Choose a sub category"
-                    : "No sub categories"
-              }
-              options={subsOfCategory}
-              disabled={!categoryId || !categoryHasSubs}
+              placeholder="Choose a category"
+              options={sortedCategories}
             />
-          )}
-        </div>
+            {tab === "listings" && (
+              <PickerSelect
+                label="Sub category"
+                value={subCategoryId}
+                onChange={(v) => {
+                  setSubCategoryId(v);
+                  setNotice("");
+                }}
+                placeholder={
+                  !categoryId
+                    ? "Choose a category first"
+                    : categoryHasSubs
+                      ? "Choose a sub category"
+                      : "No sub categories"
+                }
+                options={subsOfCategory}
+                disabled={!categoryId || !categoryHasSubs}
+              />
+            )}
+          </div>
+        </Card>
       )}
 
       {error && (
-        <div className="mb-4 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <Alert className="mb-4" onDismiss={() => setError("")}>
           {error}
-        </div>
+        </Alert>
       )}
       {notice && !error && (
-        <div className="mb-4 rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+        <Alert tone="success" className="mb-4" onDismiss={() => setNotice("")}>
           {notice}
-        </div>
+        </Alert>
       )}
 
       {ready && outOfSync && current.rows.length > 0 && (
-        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">
-          <p>
-            {missingCount > 0
-              ? `${missingCount} item${missingCount === 1 ? " has" : "s have"} no display order and ${missingCount === 1 ? "is" : "are"} hidden in the app until this order is saved.`
-              : "The saved order has gaps or duplicates. Save to store the order shown here."}
-          </p>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => save(current.rows)}
-            className="shrink-0 rounded-lg bg-[#ff7a59] px-4 py-2 font-semibold text-white disabled:opacity-60"
-          >
-            {saving ? "Saving…" : "Save this order"}
-          </button>
-        </div>
+        <Alert tone="warning" className="mb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              {missingCount > 0
+                ? `${missingCount} item${missingCount === 1 ? " has" : "s have"} no display order and ${missingCount === 1 ? "is" : "are"} hidden in the app until this order is saved.`
+                : "The saved order has gaps or duplicates. Save to store the order shown here."}
+            </p>
+            <Button
+              size="sm"
+              className="self-start sm:self-auto"
+              loading={saving}
+              onClick={() => save(current.rows)}
+            >
+              {saving ? "Saving…" : "Save this order"}
+            </Button>
+          </div>
+        </Alert>
       )}
 
-      <section className="rounded-3xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-4 sm:p-6">
-        {loading ? (
-          <p className="text-[#f3ead7]/70">Loading…</p>
-        ) : !ready ? (
-          <p className="text-[#f3ead7]/70">
-            {needsSubCategory && categoryId
+      {loading ? (
+        <LoadingState />
+      ) : !ready ? (
+        <EmptyState
+          icon={MousePointerClick}
+          title={
+            needsSubCategory && categoryId
               ? "Choose a sub category to order its listings."
-              : "Choose a category to continue."}
-          </p>
-        ) : current.rows.length === 0 ? (
-          <p className="text-[#f3ead7]/70">Nothing to order here yet.</p>
-        ) : (
+              : "Choose a category to continue."
+          }
+        />
+      ) : current.rows.length === 0 ? (
+        <EmptyState icon={ListOrdered} title="Nothing to order here yet." />
+      ) : (
+        <Card>
           <SortableList
             items={current.rows}
             getId={(r) => r.id}
@@ -273,23 +282,24 @@ export default function Page() {
                     className="h-10 w-10 shrink-0 rounded-lg border border-black/10 object-cover"
                   />
                 ) : (
-                  <div className="h-10 w-10 shrink-0 rounded-lg bg-black/5" />
+                  <div className="h-10 w-10 shrink-0 rounded-lg border border-black/10 bg-black/5" />
                 )}
-                <p className="min-w-0 flex-1 truncate font-semibold">{row.name}</p>
+                <p className="min-w-0 flex-1 truncate text-sm font-semibold">{row.name}</p>
                 {row.order === null && (
-                  <span className="shrink-0 rounded-full bg-amber-200 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
+                  <Badge tone="amber" className="shrink-0">
                     Hidden in app
-                  </span>
+                  </Badge>
                 )}
               </div>
             )}
           />
-        )}
-      </section>
+        </Card>
+      )}
     </div>
   );
 }
 
+/* A labelled picker on a dark panel, built on the kit's dark select. */
 function PickerSelect({
   label,
   value,
@@ -307,12 +317,13 @@ function PickerSelect({
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-medium text-[#f3ead7]">{label}</span>
-      <select
+      <span className="block text-sm font-semibold text-[#f4ead7]">{label}</span>
+      <SelectInput
+        tone="dark"
+        className="mt-2"
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-xl border border-white/20 bg-black px-4 py-3 text-white outline-none focus:border-[#ff7a59] disabled:opacity-50"
       >
         <option value="">{placeholder}</option>
         {options.map((o) => (
@@ -320,7 +331,7 @@ function PickerSelect({
             {o.name}
           </option>
         ))}
-      </select>
+      </SelectInput>
     </label>
   );
 }

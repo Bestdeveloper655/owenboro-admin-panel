@@ -2,6 +2,15 @@
 
 import { useEffect, useState } from "react";
 import {
+  ChevronDown,
+  ChevronUp,
+  MessageSquare,
+  Plus,
+  Star,
+  Trophy,
+  VideoOff,
+} from "lucide-react";
+import {
   collection,
   getDocs,
   getCountFromServer,
@@ -17,6 +26,21 @@ import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 
 import { db, storage } from "@/lib/firebaseServices";
 import { deleteDocDeep, deleteStorageFileByUrl } from "@/lib/adminData";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  LoadingState,
+  Modal,
+  PageHeader,
+  Spinner,
+  SwitchRow,
+  TextArea,
+  TextInput,
+} from "@/components/ui";
 
 /* TYPES */
 type Challenge = {
@@ -284,47 +308,42 @@ export default function Page() {
     : [];
 
   return (
-    <div className="px-4 pt-6 pb-10 md:px-8">
-
-      {/* HEADER */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-[#ff7a59] sm:text-4xl">
-            Challenge
-          </h1>
-          <p className="mt-1 text-sm text-[#e8dcc7]/70">
-            The app shows the active challenge. Only one can be active at a time.
-          </p>
-        </div>
-
-        <button
-          onClick={() => {
-            closeModal();
-            setAdding(true);
-          }}
-          className="self-start rounded-xl border border-[#ff7a59] px-4 py-2 text-sm text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white sm:self-auto sm:px-5 sm:text-base"
-        >
-          Add Challenge
-        </button>
-      </div>
+    <div>
+      <PageHeader
+        title="Challenge"
+        description="The app shows the active challenge. Only one can be active at a time."
+        actions={
+          <Button
+            variant="outline"
+            icon={Plus}
+            onClick={() => {
+              closeModal();
+              setAdding(true);
+            }}
+          >
+            Add Challenge
+          </Button>
+        }
+      />
 
       {error && !adding && !editing && (
-        <div className="mt-6 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+        <Alert className="mb-6" onDismiss={() => setError("")}>
           {error}
-        </div>
+        </Alert>
       )}
 
       {/* LIST */}
-      <section className="mt-10 space-y-6">
-        {loading ? (
-          <p className="text-[#f3ead7]/70">Loading challenges…</p>
-        ) : challenges.length === 0 ? (
-          <p className="text-[#f3ead7]/70">
-            No challenges yet. The challenge section is hidden in the app until
-            one is added.
-          </p>
-        ) : (
-          challenges.map((challenge) => (
+      {loading ? (
+        <LoadingState label="Loading challenges…" />
+      ) : challenges.length === 0 ? (
+        <EmptyState
+          icon={Trophy}
+          title="No challenges yet."
+          description="The challenge section is hidden in the app until one is added."
+        />
+      ) : (
+        <div className="grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {challenges.map((challenge) => (
             <ChallengeCard
               key={challenge.id}
               challenge={challenge}
@@ -352,112 +371,109 @@ export default function Page() {
                 )
               }
             />
-          ))
-        )}
-      </section>
+          ))}
+        </div>
+      )}
 
       {/* MODAL */}
       {(adding || editing) && (
-        <Modal title={adding ? "Add Challenge" : "Edit Challenge"} onClose={closeModal}>
+        <Modal
+          title={adding ? "Add Challenge" : "Edit Challenge"}
+          size="md"
+          onClose={closeModal}
+          footer={
+            <>
+              <Button variant="light" onClick={closeModal}>
+                Cancel
+              </Button>
+              <Button onClick={adding ? handleAdd : handleUpdate} loading={busy}>
+                {busy ? (progress !== null ? `Uploading ${progress}%` : "Saving…") : "Save"}
+              </Button>
+            </>
+          }
+        >
           {error && (
-            <div className="mb-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+            <Alert surface="light" className="mb-4">
               {error}
-            </div>
+            </Alert>
           )}
 
-          <Input
-            label="Challenge name"
-            value={form.name}
-            onChange={(v: string) => setForm({ ...form, name: v })}
-          />
+          <Field label="Challenge name">
+            <TextInput
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </Field>
 
-          <div className="mt-3">
-            <label className="font-semibold">Description</label>
-            <textarea
+          <Field label="Description">
+            <TextArea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              className="mt-1 h-24 w-full rounded-xl border border-[#ff7a59] p-3"
             />
-          </div>
+          </Field>
 
-          <Input
-            label="Video URL"
-            value={form.videoUrl}
-            onChange={(v: string) => setForm({ ...form, videoUrl: v })}
-          />
+          <Field label="Video URL">
+            <TextInput
+              value={form.videoUrl}
+              onChange={(e) => setForm({ ...form, videoUrl: e.target.value })}
+            />
+          </Field>
 
-          <label className="mt-3 block text-sm font-semibold">…or upload a video</label>
-          <input
-            type="file"
-            accept="video/*"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            className="mt-1"
-          />
-          {file && (
-            <p className="mt-1 text-xs text-black/60">
-              The uploaded file replaces the URL above.
-            </p>
-          )}
+          <Field
+            label="…or upload a video"
+            hint={file ? "The uploaded file replaces the URL above." : undefined}
+          >
+            <input
+              type="file"
+              accept="video/*"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className={fileInputClass}
+            />
+          </Field>
 
           {adding && (
-            <label className="mt-4 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={form.makeActive}
-                onChange={(e) => setForm({ ...form, makeActive: e.target.checked })}
-              />
-              Make this the active challenge (the current one is deactivated)
-            </label>
+            <SwitchRow
+              title="Make this the active challenge"
+              description="The current one is deactivated."
+              checked={form.makeActive}
+              onChange={(checked) => setForm({ ...form, makeActive: checked })}
+            />
           )}
 
-          {progress !== null && (
-            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/10">
-              <div className="h-full bg-[#ff7a59] transition-all" style={{ width: `${progress}%` }} />
-            </div>
-          )}
-
-          <button
-            onClick={adding ? handleAdd : handleUpdate}
-            disabled={busy}
-            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-[#ff7a59] py-3 text-white disabled:opacity-60"
-          >
-            {busy && (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            )}
-            {busy ? (progress !== null ? `Uploading ${progress}%` : "Saving…") : "Save"}
-          </button>
+          {progress !== null && <ProgressBar value={progress} />}
         </Modal>
       )}
 
       {/* DELETE */}
       {deleting && (
-        <Modal title="Delete challenge" onClose={() => setDeleting(null)}>
+        <Modal
+          title="Delete challenge"
+          size="sm"
+          onClose={() => setDeleting(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger-solid" onClick={confirmDelete} loading={busy}>
+                {busy ? "Deleting…" : "Delete"}
+              </Button>
+            </>
+          }
+        >
           <p>
-            Delete <b>{deleting.name || "this challenge"}</b>? Its video and all of
-            its reviews are deleted too. This can&rsquo;t be undone.
+            Delete <span className="font-semibold">{deleting.name || "this challenge"}</span>?
+          </p>
+          <p className="mt-2 text-sm text-black/60">
+            Its video and all of its reviews are deleted too. This can&rsquo;t be undone.
           </p>
           {deleting.isActive && (
-            <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-900">
+            <Alert tone="warning" surface="light" className="mt-4">
               {remainingAfterDelete.length > 0
                 ? `This is the active challenge. "${remainingAfterDelete[0].name || "The newest remaining challenge"}" will become active instead.`
                 : "This is the only challenge. The challenge section will be hidden in the app."}
-            </p>
+            </Alert>
           )}
-          <div className="mt-6 flex justify-end gap-3">
-            <button
-              onClick={() => setDeleting(null)}
-              className="rounded-xl border border-black/15 px-4 py-2"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDelete}
-              disabled={busy}
-              className="rounded-xl bg-red-500 px-4 py-2 text-white disabled:opacity-60"
-            >
-              {busy ? "Deleting…" : "Delete"}
-            </button>
-          </div>
         </Modal>
       )}
     </div>
@@ -530,146 +546,140 @@ function ChallengeCard({
   const count = challenge.reviewCount;
 
   return (
-    <div className="rounded-2xl border border-[#ff7a59]/60 bg-[#0a0a0a] p-6 space-y-5">
-
+    <Card tone="cream" className="flex flex-col gap-4">
       {/* HEADER */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate text-lg font-semibold text-white">
+          <h3 className="truncate text-base font-semibold">
             {challenge.name || "Untitled challenge"}
           </h3>
           {challenge.description && (
-            <p className="mt-1 text-sm text-white/60">{challenge.description}</p>
+            <p className="mt-1 text-sm break-words text-black/60">{challenge.description}</p>
           )}
         </div>
 
         {challenge.isActive && (
-          <span className="shrink-0 rounded-full bg-green-500/20 px-3 py-1 text-xs text-green-400">
+          <Badge tone="green" className="shrink-0">
             Active
-          </span>
+          </Badge>
         )}
       </div>
 
       {/* VIDEO */}
       {challenge.videoUrl ? (
-        <video controls className="w-full rounded-xl" src={challenge.videoUrl} />
+        <video
+          controls
+          className="aspect-video w-full rounded-xl border border-black/10 bg-black"
+          src={challenge.videoUrl}
+        />
       ) : (
-        <p className="rounded-xl bg-white/5 p-4 text-sm text-white/50">No video</p>
+        <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-black/20 bg-black/5 text-sm text-black/45">
+          <VideoOff className="h-5 w-5" aria-hidden />
+          No video
+        </div>
       )}
 
       {/* INFO BAR */}
-      <div className="flex items-center justify-between text-sm text-[#f3ead7]">
-
-        <div className="flex items-center gap-2">
-          <span className="font-medium">{count ?? "–"}</span>
-          <span className="text-white/60">{count === 1 ? "Review" : "Reviews"}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <div className="flex items-center gap-1.5 text-black/60">
+          <MessageSquare className="h-4 w-4" aria-hidden />
+          <span className="font-semibold text-black tabular-nums">{count ?? "–"}</span>
+          <span>{count === 1 ? "Review" : "Reviews"}</span>
         </div>
 
-        <div className="flex items-center gap-2">
-
+        <div className="flex flex-wrap items-center gap-2">
           {!challenge.isActive && (
-            <button
-              onClick={onSetActive}
-              disabled={busy}
-              className="rounded-lg bg-[#ff7a59] px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
-            >
+            <Button size="sm" variant="success" onClick={onSetActive} disabled={busy}>
               Set Active
-            </button>
+            </Button>
           )}
 
-          <button
+          <Button
+            size="sm"
+            variant="light"
+            icon={open ? ChevronUp : ChevronDown}
             onClick={toggleReviews}
-            className="rounded-lg border border-white/20 px-3 py-1 text-xs text-white"
           >
             {open ? "Hide Reviews" : "View Reviews"}
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* REVIEWS */}
       {open && (
-        <div className="border-t border-white/10 pt-4">
+        <div className="border-t border-black/10 pt-4">
           {loadingReviews || reviews === null ? (
-            <p className="text-sm text-white/50">Loading reviews…</p>
+            <p className="flex items-center gap-2 text-sm text-black/55">
+              <Spinner className="h-4 w-4" />
+              Loading reviews…
+            </p>
           ) : reviews.length === 0 ? (
-            <div className="rounded-lg bg-white/5 p-3 text-center text-sm text-white/50">
+            <div className="rounded-xl border border-dashed border-black/15 bg-black/5 p-3 text-center text-sm text-black/50">
               No reviews yet
             </div>
           ) : (
-            <div className="max-h-64 space-y-2 overflow-y-auto">
-              {reviews.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-start justify-between gap-3 rounded-lg bg-[#ece2cb] px-3 py-2 text-sm text-black"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold">
-                      {r.userName}{" "}
-                      <span className="font-normal text-amber-700">
-                        {"★".repeat(Math.max(0, Math.min(5, r.rating)))}
-                      </span>
-                    </p>
-                    <p className="text-black/80">{r.reviewText}</p>
-                  </div>
-                  <button
-                    onClick={() => deleteReview(r)}
-                    className="shrink-0 text-xs text-red-600 hover:underline"
+            <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+              {reviews.map((r) => {
+                const stars = Math.max(0, Math.min(5, r.rating));
+                return (
+                  <div
+                    key={r.id}
+                    className="flex items-start justify-between gap-3 rounded-xl border border-black/5 bg-[#f5ecd7] px-3 py-2.5 text-sm"
                   >
-                    Delete
-                  </button>
-                </div>
-              ))}
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold">
+                        {r.userName}
+                        {stars > 0 && (
+                          <span
+                            className="inline-flex items-center gap-0.5"
+                            aria-label={`${stars} out of 5 stars`}
+                          >
+                            {Array.from({ length: stars }, (_, i) => (
+                              <Star
+                                key={i}
+                                className="h-3.5 w-3.5 fill-amber-500 text-amber-500"
+                                aria-hidden
+                              />
+                            ))}
+                          </span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 break-words text-black/75">{r.reviewText}</p>
+                    </div>
+                    <Button size="sm" variant="danger" onClick={() => deleteReview(r)}>
+                      Delete
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
       {/* ACTIONS */}
-      <div className="flex justify-end gap-3 border-t border-white/10 pt-4">
-
-        <button
-          onClick={onEdit}
-          className="rounded-lg bg-[#ff7a59] px-4 py-1.5 text-xs font-semibold text-white"
-        >
+      <div className="flex justify-end gap-2 border-t border-black/10 pt-4">
+        <Button size="sm" onClick={onEdit}>
           Edit
-        </button>
-
-        <button
-          onClick={onDelete}
-          className="rounded-lg border border-red-400 px-4 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-500 hover:text-white"
-        >
+        </Button>
+        <Button size="sm" variant="danger" onClick={onDelete}>
           Delete
-        </button>
-
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
 /* UI */
-function Modal({ children, title, onClose }: any) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 py-6">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-[#e8dcc7] p-6 text-black">
-        <div className="flex justify-between mb-4">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose}>✖</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
 
-function Input({ label, value, onChange }: any) {
+/* Native file picker styled like the kit's outline button. */
+const fileInputClass =
+  "block w-full cursor-pointer text-sm text-black/60 file:mr-3 file:cursor-pointer file:rounded-xl file:border file:border-[#ff7a59] file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-medium file:text-[#ff7a59] file:transition hover:file:bg-[#ff7a59] hover:file:text-white";
+
+function ProgressBar({ value }: { value: number }) {
   return (
-    <div className="mt-3">
-      <label className="font-semibold">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full border border-[#ff7a59] rounded-xl p-3 mt-1"
-      />
+    <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/10">
+      <div className="h-full rounded-full bg-[#ff7a59] transition-all" style={{ width: `${value}%` }} />
     </div>
   );
 }

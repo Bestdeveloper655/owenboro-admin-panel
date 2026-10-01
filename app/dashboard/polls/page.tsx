@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BarChart3, Calendar, Eye, Plus, Send, X } from "lucide-react";
 import {
   collection,
   getDocs,
@@ -14,6 +15,23 @@ import {
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebaseServices";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  Field,
+  FilterSelect,
+  LoadingState,
+  Modal,
+  PageHeader,
+  SectionHeading,
+  Segmented,
+  Spinner,
+  SwitchRow,
+  TextInput,
+} from "@/components/ui";
 
 /* TYPES */
 type Group = {
@@ -241,201 +259,177 @@ export default function Page() {
   };
 
   return (
-    <div className="px-4 pt-6 pb-10 md:px-8">
-      {/* HEADER */}
-      <div>
-        <h1 className="text-4xl font-bold tracking-tight text-[#ff7a59] md:text-5xl">
-          Polls &amp; Questions
-        </h1>
-        <p className="mt-2 text-lg font-medium text-[#e8dcc7] md:text-xl">
-          Create a multiple-choice poll or an open question and send it to one or
-          more groups. It appears above the messaging bar in each group&apos;s
-          chat.
-        </p>
-      </div>
+    <div>
+      <PageHeader
+        title="Polls & Questions"
+        description={
+          <>
+            Create a multiple-choice poll or an open question and send it to one or
+            more groups. It appears above the messaging bar in each group&apos;s
+            chat.
+          </>
+        }
+      />
 
-      <div className="mt-10 grid gap-10 lg:grid-cols-2">
+      <div className="grid items-start gap-6 lg:grid-cols-2">
         {/* FORM */}
-        <div className="rounded-2xl border border-[#ff7a59]/60 bg-[#0a0a0a] p-6">
-          <h2 className="mb-6 text-xl font-semibold text-white">Create</h2>
+        <Card title="Create">
+          {/* TYPE */}
+          <Field label="Type" tone="dark">
+            <Segmented<PollType>
+              value={type}
+              onChange={setType}
+              options={[
+                { value: "poll", label: "Poll (choices)" },
+                { value: "question", label: "Question (free text)" },
+              ]}
+            />
+          </Field>
 
-          <div className="space-y-5">
-            {/* TYPE */}
-            <div>
-              <label className="block text-sm font-medium text-[#f3ead7]">
-                Type
-              </label>
-              <div className="mt-2 flex gap-2">
-                {(["poll", "question"] as PollType[]).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setType(t)}
-                    className={`flex-1 rounded-lg border px-4 py-3 text-sm font-semibold transition ${
-                      type === t
-                        ? "border-[#ff7a59] bg-[#ff7a59] text-white"
-                        : "border-white/20 bg-black text-white/70 hover:bg-white/10"
-                    }`}
-                  >
-                    {t === "poll" ? "Poll (choices)" : "Question (free text)"}
-                  </button>
-                ))}
-              </div>
+          {/* GROUPS */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-[#f4ead7]">
+                Groups{" "}
+                <span className="font-normal text-[#f4ead7]/55">
+                  ({selectedGroupIds.length} selected)
+                </span>
+              </p>
+              {groups.length > 0 && (
+                <Button size="sm" variant="secondary" onClick={toggleAllGroups}>
+                  {allSelected ? "Clear all" : "Select all"}
+                </Button>
+              )}
             </div>
-
-            {/* GROUPS */}
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="block text-sm font-medium text-[#f3ead7]">
-                  Groups ({selectedGroupIds.length} selected)
-                </label>
-                {groups.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={toggleAllGroups}
-                    className="text-xs font-medium text-[#ff7a59] hover:underline"
-                  >
-                    {allSelected ? "Clear all" : "Select all"}
-                  </button>
-                )}
-              </div>
-              <div className="mt-2 max-h-44 space-y-1 overflow-y-auto rounded-lg border border-white/20 bg-black p-2">
-                {groups.length === 0 && (
-                  <p className="px-2 py-1 text-sm text-white/50">
-                    No groups found
-                  </p>
-                )}
-                {groups.map((g) => (
-                  <label
-                    key={g.id}
-                    className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm text-white hover:bg-white/10"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedGroupIds.includes(g.id)}
-                      onChange={() => toggleGroup(g.id)}
-                      className="h-4 w-4 accent-[#ff7a59]"
-                    />
-                    {g.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* QUESTION */}
-            <div>
-              <label className="block text-sm font-medium text-[#f3ead7]">
-                {type === "poll" ? "Poll question" : "Question"}
-              </label>
-              <input
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                placeholder={
-                  type === "poll"
-                    ? "What's your favorite spot in Owensboro?"
-                    : "What would you like to see more of?"
-                }
-                className="mt-2 w-full rounded-lg border border-white/20 bg-black px-4 py-3 text-sm text-white outline-none focus:border-[#ff7a59]"
-              />
-            </div>
-
-            {/* OPTIONS (poll only) */}
-            {type === "poll" && (
-              <>
-                <div>
-                  <label className="block text-sm font-medium text-[#f3ead7]">
-                    Options
-                  </label>
-                  <div className="mt-2 space-y-3">
-                    {options.map((opt, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <input
-                          value={opt}
-                          onChange={(e) => updateOption(i, e.target.value)}
-                          placeholder={`Option ${i + 1}`}
-                          className="w-full rounded-lg border border-white/20 bg-black px-4 py-3 text-sm text-white outline-none focus:border-[#ff7a59]"
-                        />
-                        {options.length > 2 && (
-                          <button
-                            type="button"
-                            onClick={() => removeOption(i)}
-                            className="shrink-0 rounded-lg border border-white/20 px-3 py-2 text-sm text-white/70 hover:bg-white/10"
-                            aria-label="Remove option"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {options.length < 6 && (
-                    <button
-                      type="button"
-                      onClick={addOption}
-                      className="mt-3 text-sm font-medium text-[#ff7a59] hover:underline"
-                    >
-                      + Add option
-                    </button>
-                  )}
-                </div>
-
-                {/* ALLOW OTHER */}
-                <label className="flex cursor-pointer items-center gap-3 text-sm text-white">
+            <div className="mt-2 max-h-44 space-y-0.5 overflow-y-auto rounded-xl border border-white/15 bg-[#0a0a0a] p-1.5">
+              {groups.length === 0 && (
+                <p className="px-2.5 py-2 text-sm text-white/50">
+                  No groups found
+                </p>
+              )}
+              {groups.map((g) => (
+                <label
+                  key={g.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-sm text-[#f4ead7] transition hover:bg-white/5"
+                >
                   <input
                     type="checkbox"
-                    checked={allowOther}
-                    onChange={(e) => setAllowOther(e.target.checked)}
-                    className="h-4 w-4 accent-[#ff7a59]"
+                    checked={selectedGroupIds.includes(g.id)}
+                    onChange={() => toggleGroup(g.id)}
+                    className="h-4 w-4 shrink-0 accent-[#ff7a59]"
                   />
-                  Add an &ldquo;Other&rdquo; option where users type their own
-                  answer
+                  <span className="min-w-0 truncate">{g.name}</span>
                 </label>
-              </>
-            )}
-
-            {error && <p className="text-sm text-red-400">{error}</p>}
-            {notice && <p className="text-sm text-green-400">{notice}</p>}
-
-            <button
-              onClick={handleSubmit}
-              disabled={saving}
-              className="mt-2 inline-flex items-center justify-center rounded-lg bg-[#ff7a59] px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
-            >
-              {saving ? <Spinner /> : `Send ${type === "poll" ? "poll" : "question"}`}
-            </button>
+              ))}
+            </div>
           </div>
-        </div>
+
+          {/* QUESTION */}
+          <Field label={type === "poll" ? "Poll question" : "Question"} tone="dark">
+            <TextInput
+              tone="dark"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              placeholder={
+                type === "poll"
+                  ? "What's your favorite spot in Owensboro?"
+                  : "What would you like to see more of?"
+              }
+            />
+          </Field>
+
+          {/* OPTIONS (poll only) */}
+          {type === "poll" && (
+            <>
+              <Field label="Options" tone="dark">
+                <div className="space-y-2">
+                  {options.map((opt, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <TextInput
+                        tone="dark"
+                        value={opt}
+                        onChange={(e) => updateOption(i, e.target.value)}
+                        placeholder={`Option ${i + 1}`}
+                      />
+                      {options.length > 2 && (
+                        <Button
+                          variant="secondary"
+                          icon={X}
+                          onClick={() => removeOption(i)}
+                          className="self-stretch"
+                          aria-label="Remove option"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {options.length < 6 && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={Plus}
+                    onClick={addOption}
+                    className="mt-3"
+                  >
+                    Add option
+                  </Button>
+                )}
+              </Field>
+
+              {/* ALLOW OTHER */}
+              <SwitchRow
+                tone="dark"
+                title={<>Add an &ldquo;Other&rdquo; option where users type their own answer</>}
+                checked={allowOther}
+                onChange={setAllowOther}
+              />
+            </>
+          )}
+
+          {error && (
+            <Alert className="mt-4" onDismiss={() => setError("")}>
+              {error}
+            </Alert>
+          )}
+          {notice && (
+            <Alert tone="success" className="mt-4" onDismiss={() => setNotice("")}>
+              {notice}
+            </Alert>
+          )}
+
+          <div className="mt-6 flex justify-end">
+            <Button icon={Send} onClick={handleSubmit} loading={saving}>
+              {`Send ${type === "poll" ? "poll" : "question"}`}
+            </Button>
+          </div>
+        </Card>
 
         {/* LIST */}
-        <div>
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <h2 className="text-xl font-semibold text-[#e8dcc7]">
-              Existing in group
-            </h2>
-            <select
-              value={viewGroupId}
-              onChange={(e) => setViewGroupId(e.target.value)}
-              className="rounded-lg border border-white/20 bg-black px-3 py-2 text-sm text-white outline-none focus:border-[#ff7a59]"
-            >
-              {groups.length === 0 && <option value="">No groups</option>}
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="min-w-0">
+          <SectionHeading
+            title="Existing in group"
+            actions={
+              <FilterSelect
+                value={viewGroupId}
+                onChange={(e) => setViewGroupId(e.target.value)}
+                className="max-w-full"
+              >
+                {groups.length === 0 && <option value="">No groups</option>}
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </FilterSelect>
+            }
+          />
 
           {loadingPolls ? (
-            <div className="flex justify-center py-10">
-              <Spinner dark />
-            </div>
+            <LoadingState label="Loading polls…" />
           ) : polls.length === 0 ? (
-            <p className="text-[#e8dcc7]/70">
-              Nothing for this group yet.
-            </p>
+            <EmptyState icon={BarChart3} title="Nothing for this group yet." />
           ) : (
-            <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1">
               {polls.map((poll) => (
                 <PollCard
                   key={poll.id}
@@ -451,26 +445,25 @@ export default function Page() {
 
       {/* DELETE MODAL */}
       {deleting && (
-        <Modal title="Delete" onClose={() => setDeleting(null)}>
-          <p className="text-black">
+        <Modal
+          title="Delete"
+          size="sm"
+          onClose={() => setDeleting(null)}
+          footer={
+            <>
+              <Button variant="light" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button variant="danger-solid" onClick={confirmDelete} loading={saving}>
+                Delete
+              </Button>
+            </>
+          }
+        >
+          <p>
             Delete this {deleting.type === "poll" ? "poll" : "question"} from
             this group? Other groups it was sent to keep their copy.
           </p>
-          <div className="mt-6 flex gap-3">
-            <button
-              onClick={() => setDeleting(null)}
-              className="w-full rounded-lg border py-2"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDelete}
-              disabled={saving}
-              className="flex w-full justify-center rounded-lg bg-red-500 py-2 text-white"
-            >
-              {saving ? <Spinner /> : "Delete"}
-            </button>
-          </div>
         </Modal>
       )}
 
@@ -499,69 +492,61 @@ function PollCard({
   const isToday = poll.date === todayKey();
   const otherCount = poll.voteCounts?.["other"] || 0;
   return (
-    <div className="rounded-xl border border-[#ff7a59]/40 bg-[#0a0a0a] p-5 text-white">
+    <Card tone="cream" className="flex flex-col">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="rounded-full border border-[#ff7a59]/60 px-2 py-0.5 text-[10px] font-bold uppercase text-[#ff7a59]">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone={poll.type === "poll" ? "purple" : "blue"}>
               {poll.type === "poll" ? "Poll" : "Question"}
-            </span>
-            <span className="text-xs font-semibold text-[#ff7a59]">
+            </Badge>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-black/55">
+              <Calendar className="h-3.5 w-3.5" aria-hidden />
               {poll.date}
             </span>
-            {isToday && (
-              <span className="rounded-full bg-[#ff7a59] px-2 py-0.5 text-[10px] font-bold uppercase">
-                Today
-              </span>
-            )}
+            {isToday && <Badge tone="orange">Today</Badge>}
           </div>
-          <p className="mt-1 text-base font-semibold">{poll.question}</p>
+          <p className="mt-2 text-base font-semibold break-words">{poll.question}</p>
         </div>
-        <button onClick={onDelete} aria-label="Delete">
-          🗑️
-        </button>
+        <Button size="sm" variant="danger" onClick={onDelete}>
+          Delete
+        </Button>
       </div>
 
-      {poll.type === "poll" ? (
-        <>
-          <div className="mt-3 space-y-2">
-            {poll.options.map((opt, i) => {
-              const count = poll.voteCounts?.[String(i)] || 0;
-              const pct =
+      {poll.type === "poll" && (
+        <div className="mt-4 space-y-2.5">
+          {poll.options.map((opt, i) => {
+            const count = poll.voteCounts?.[String(i)] || 0;
+            const pct =
+              poll.totalVotes > 0
+                ? Math.round((count / poll.totalVotes) * 100)
+                : 0;
+            return <OptionBar key={i} label={opt} count={count} pct={pct} />;
+          })}
+          {poll.allowOther && (
+            <OptionBar
+              label="Other (typed)"
+              count={otherCount}
+              pct={
                 poll.totalVotes > 0
-                  ? Math.round((count / poll.totalVotes) * 100)
-                  : 0;
-              return <OptionBar key={i} label={opt} count={count} pct={pct} />;
-            })}
-            {poll.allowOther && (
-              <OptionBar
-                label="Other (typed)"
-                count={otherCount}
-                pct={
-                  poll.totalVotes > 0
-                    ? Math.round((otherCount / poll.totalVotes) * 100)
-                    : 0
-                }
-              />
-            )}
-          </div>
-          <p className="mt-3 text-xs text-white/60">
-            {poll.totalVotes} total vote{poll.totalVotes === 1 ? "" : "s"}
-          </p>
-        </>
-      ) : (
-        <p className="mt-3 text-xs text-white/60">
-          {poll.answerCount} answer{poll.answerCount === 1 ? "" : "s"}
-        </p>
+                  ? Math.round((otherCount / poll.totalVotes) * 100)
+                  : 0
+              }
+            />
+          )}
+        </div>
       )}
 
-      <button
-        onClick={onViewAnswers}
-        className="mt-3 text-sm font-medium text-[#ff7a59] hover:underline"
-      >
-        View all answers
-      </button>
-    </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-black/10 pt-3">
+        <p className="text-xs text-black/55">
+          {poll.type === "poll"
+            ? `${poll.totalVotes} total vote${poll.totalVotes === 1 ? "" : "s"}`
+            : `${poll.answerCount} answer${poll.answerCount === 1 ? "" : "s"}`}
+        </p>
+        <Button size="sm" variant="light" icon={Eye} onClick={onViewAnswers}>
+          View all answers
+        </Button>
+      </div>
+    </Card>
   );
 }
 
@@ -576,14 +561,14 @@ function OptionBar({
 }) {
   return (
     <div>
-      <div className="flex justify-between text-xs text-white/80">
-        <span>{label}</span>
-        <span>
+      <div className="flex justify-between gap-3 text-xs text-black/70">
+        <span className="min-w-0 break-words">{label}</span>
+        <span className="shrink-0 tabular-nums">
           {count} ({pct}%)
         </span>
       </div>
-      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-white/10">
-        <div className="h-full bg-[#ff7a59]" style={{ width: `${pct}%` }} />
+      <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-black/10">
+        <div className="h-full rounded-full bg-[#ff7a59]" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -637,68 +622,37 @@ function AnswersModal({
   };
 
   return (
-    <Modal title="All answers" onClose={onClose}>
-      <p className="mb-4 text-sm font-semibold text-black">{poll.question}</p>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+    <Modal
+      title="All answers"
+      description={poll.question}
+      size="md"
+      onClose={onClose}
+      footer={<Button onClick={onClose}>Close</Button>}
+    >
+      {error && (
+        <Alert surface="light" className="mb-4">
+          {error}
+        </Alert>
+      )}
       {answers === null ? (
         <div className="flex justify-center py-6">
-          <Spinner dark />
+          <Spinner />
         </div>
       ) : answers.length === 0 ? (
-        <p className="text-black/60">No answers yet.</p>
+        <p className="text-sm text-black/60">No answers yet.</p>
       ) : (
-        <div className="max-h-80 space-y-2 overflow-y-auto">
+        <div className="space-y-2">
           {answers.map((a) => (
             <div
               key={a.uid}
-              className="flex items-start justify-between gap-3 rounded-lg bg-black/5 px-3 py-2 text-sm text-black"
+              className="flex items-start justify-between gap-3 rounded-xl border border-black/5 bg-white/50 px-3 py-2.5 text-sm"
             >
-              <span className="font-semibold">{a.userName}</span>
-              <span className="text-right text-black/70">{label(a)}</span>
+              <span className="shrink-0 font-semibold">{a.userName}</span>
+              <span className="min-w-0 text-right break-words text-black/70">{label(a)}</span>
             </div>
           ))}
         </div>
       )}
-      <button
-        onClick={onClose}
-        className="mt-6 w-full rounded-lg bg-[#ff7a59] py-2 font-semibold text-white"
-      >
-        Close
-      </button>
     </Modal>
-  );
-}
-
-/* MODAL */
-function Modal({
-  children,
-  title,
-  onClose,
-}: {
-  children: React.ReactNode;
-  title: string;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-[90%] max-w-lg rounded-3xl bg-[#e8dcc7] p-6 text-black">
-        <div className="mb-4 flex justify-between">
-          <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
-          <button onClick={onClose}>✖</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/* SPINNER */
-function Spinner({ dark = false }: { dark?: boolean }) {
-  return (
-    <div
-      className={`h-5 w-5 animate-spin rounded-full border-2 border-t-transparent ${
-        dark ? "border-[#ff7a59]" : "border-white"
-      }`}
-    />
   );
 }
