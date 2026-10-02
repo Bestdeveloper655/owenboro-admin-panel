@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Heart, ImageOff, MessageCircle, Newspaper, Plus } from "lucide-react";
+import { Heart, ImageOff, MessageCircle, Newspaper, Pin, PinOff, Plus } from "lucide-react";
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -14,6 +15,7 @@ import {
   setDoc,
   startAfter,
   Timestamp,
+  updateDoc,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
@@ -27,12 +29,14 @@ import {
 } from "@/lib/adminData";
 import {
   Alert,
+  Badge,
   Button,
   EmptyState,
   Field,
   LoadingState,
   Modal,
   PageHeader,
+  SwitchRow,
   TextArea,
   buttonClass,
   cx,
@@ -47,6 +51,9 @@ type Post = {
   mediaType: "image" | "video";
   caption: string;
   createdAt: Date | null;
+  /* Pinned to the top of the app feed while the doc has `pinnedAt`; the date
+   * it was pinned orders pinned posts, newest pin first. */
+  pinnedAt: Date | null;
   likeCount: number;
   commentCount: number;
 };
@@ -65,9 +72,21 @@ function toPost(d: QueryDocumentSnapshot): Post {
     mediaType: x.mediaType === "video" ? "video" : "image",
     caption: x.caption || "",
     createdAt: x.createdAt instanceof Timestamp ? x.createdAt.toDate() : null,
+    pinnedAt: x.pinnedAt instanceof Timestamp ? x.pinnedAt.toDate() : null,
     likeCount: Array.isArray(x.likes) ? x.likes.length : 0,
     commentCount: typeof x.commentCount === "number" ? x.commentCount : 0,
   };
+}
+
+/* Same order as the app feed: pinned posts first (most recently pinned on
+ * top), then everything else newest first. */
+function sortPosts(list: Post[]): Post[] {
+  const t = (d: Date | null) => d?.getTime() ?? 0;
+  return [...list].sort((a, b) => {
+    if (!!a.pinnedAt !== !!b.pinnedAt) return a.pinnedAt ? -1 : 1;
+    if (a.pinnedAt && b.pinnedAt) return t(b.pinnedAt) - t(a.pinnedAt);
+    return t(b.createdAt) - t(a.createdAt);
+  });
 }
 
 /* Owensboro Friends feed (B1). Only `role == 'admin'` may post; the doc shape
@@ -84,12 +103,14 @@ export default function Page() {
   const [composing, setComposing] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [caption, setCaption] = useState("");
+  const [pinNew, setPinNew] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState("");
 
   const [deleting, setDeleting] = useState<Post | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [pinBusyId, setPinBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const isAdmin = role === "admin";
@@ -112,8 +133,16 @@ export default function Page() {
     try {
       setLoading(true);
       setError("");
-      const { items, last, more } = await loadPage(null);
-      setPosts(items);
+      // Pinned posts can be older than the first page, so fetch them on their
+      // own (same query as the app's pinnedPostsStream). Ordering on
+      // `pinnedAt` only returns docs that have the field.
+      const [pinnedSnap, { items, last, more }] = await Promise.all([
+        getDocs(query(collection(db, "posts"), orderBy("pinnedAt", "desc"))),
+        loadPage(null),
+      ]);
+      const pinned = pinnedSnap.docs.map(toPost);
+      const pinnedIds = new Set(pinned.map((p) => p.id));
+      setPosts(sortPosts([...pinned, ...items.filter((p) => !pinnedIds.has(p.id))]));
       setCursor(last);
       setHasMore(more);
     } catch (err) {
@@ -129,7 +158,10 @@ export default function Page() {
     try {
       setLoadingMore(true);
       const { items, last, more } = await loadPage(cursor);
-      setPosts((prev) => [...prev, ...items]);
+      setPosts((prev) => {
+        const seen = new Set(prev.map((p) => p.id));
+        return sortPosts([...prev, ...items.filter((p) => !seen.has(p.id))]);
+      });
       setCursor(last);
       setHasMore(more);
     } catch (err) {
@@ -176,6 +208,7 @@ export default function Page() {
     setComposing(false);
     setFile(null);
     setCaption("");
+    setPinNew(false);
     setFormError("");
     setProgress(null);
   };
@@ -221,6 +254,7 @@ export default function Page() {
           createdAt: serverTimestamp(),
           likes: [],
           commentCount: 0,
+          ...(pinNew ? { pinnedAt: serverTimestamp() } : {}),
         });
       } catch (err) {
         // Don't leave an orphaned upload behind if the post itself failed.
@@ -241,6 +275,31 @@ export default function Page() {
     } finally {
       setPublishing(false);
       setProgress(null);
+    }
+  };
+
+  const togglePin = async (post: Post) => {
+    const pin = !post.pinnedAt;
+    try {
+      setPinBusyId(post.id);
+      setError("");
+      // Same write as the app's PostsService.setPinned. The rules only let
+      // admins change `pinnedAt` on someone else's post.
+      await updateDoc(doc(db, "posts", post.id), {
+        pinnedAt: pin ? serverTimestamp() : deleteField(),
+      });
+      setPosts((prev) =>
+        sortPosts(prev.map((p) => (p.id === post.id ? { ...p, pinnedAt: pin ? new Date() : null } : p))),
+      );
+    } catch (err) {
+      console.error(err);
+      setError(
+        (err as { code?: string })?.code === "permission-denied"
+          ? "You don't have permission to pin or unpin this post."
+          : `Failed to ${pin ? "pin" : "unpin"} the post.`,
+      );
+    } finally {
+      setPinBusyId(null);
     }
   };
 
@@ -281,7 +340,7 @@ export default function Page() {
     <div>
       <PageHeader
         title="Feed Posts"
-        description="Posts in the Owensboro Friends feed, newest first. Only admins can post."
+        description="Posts in the Owensboro Friends feed. Pinned posts stay at the top of the app feed; the rest show newest first. Only admins can post."
         actions={
           <Button variant="outline" icon={Plus} onClick={() => setComposing(true)}>
             Create post
@@ -305,9 +364,18 @@ export default function Page() {
             {posts.map((p) => (
               <article
                 key={p.id}
-                className="flex flex-col overflow-hidden rounded-2xl border border-black/5 bg-[#ece2cb] text-black"
+                className={cx(
+                  "flex flex-col overflow-hidden rounded-2xl border bg-[#ece2cb] text-black",
+                  p.pinnedAt ? "border-[#ff7a59] ring-1 ring-[#ff7a59]" : "border-black/5",
+                )}
               >
-                <div className="aspect-square w-full shrink-0 overflow-hidden bg-black">
+                <div className="relative aspect-square w-full shrink-0 overflow-hidden bg-black">
+                  {p.pinnedAt && (
+                    <Badge tone="orange" className="absolute top-3 left-3 z-10 shadow">
+                      <Pin className="h-3 w-3" aria-hidden />
+                      Pinned
+                    </Badge>
+                  )}
                   {!p.mediaUrl ? (
                     <div className="flex h-full flex-col items-center justify-center gap-2 bg-[#e3d7bc] text-sm text-black/45">
                       <ImageOff className="h-5 w-5" aria-hidden />
@@ -353,9 +421,20 @@ export default function Page() {
                         {p.commentCount} comment{p.commentCount === 1 ? "" : "s"}
                       </span>
                     </span>
-                    <Button size="sm" variant="danger" onClick={() => setDeleting(p)}>
-                      Delete
-                    </Button>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="light"
+                        icon={p.pinnedAt ? PinOff : Pin}
+                        loading={pinBusyId === p.id}
+                        onClick={() => togglePin(p)}
+                      >
+                        {p.pinnedAt ? "Unpin" : "Pin"}
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => setDeleting(p)}>
+                        Delete
+                      </Button>
+                    </span>
                   </div>
                 </div>
               </article>
@@ -437,6 +516,14 @@ export default function Page() {
               maxLength={2200}
             />
           </Field>
+
+          <SwitchRow
+            title="Pin to top of feed"
+            description="Keeps this post above newer ones in the app until you unpin it."
+            checked={pinNew}
+            onChange={setPinNew}
+            disabled={publishing}
+          />
 
           {progress !== null && (
             <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/10">
