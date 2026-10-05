@@ -37,6 +37,9 @@ type MenuItem = {
   path: string;
   icon: LucideIcon;
   adminOnly?: boolean;
+  /* Left out of the menu and the dashboard shortcuts but still routed and
+   * still admin-only, so it can be brought back by removing the flag. */
+  hidden?: boolean;
 };
 
 type MenuSection = {
@@ -65,10 +68,11 @@ export const menuSections: MenuSection[] = [
   {
     title: "App Content",
     items: [
-      { name: "Banner", path: "/dashboard/banner", icon: GalleryHorizontalEnd, adminOnly: true },
-      { name: "Header Image", path: "/dashboard/header-image", icon: PanelTop, adminOnly: true },
-      { name: "Challenge", path: "/dashboard/challenge", icon: Trophy, adminOnly: true },
-      { name: "Vote for Favourite", path: "/dashboard/vote", icon: Heart, adminOnly: true },
+      // Hidden at the client's request (5 Oct 2026).
+      { name: "Banner", path: "/dashboard/banner", icon: GalleryHorizontalEnd, adminOnly: true, hidden: true },
+      { name: "Header Image", path: "/dashboard/header-image", icon: PanelTop, adminOnly: true, hidden: true },
+      { name: "Challenge", path: "/dashboard/challenge", icon: Trophy, adminOnly: true, hidden: true },
+      { name: "Vote for Favourite", path: "/dashboard/vote", icon: Heart, adminOnly: true, hidden: true },
       { name: "Feed Posts", path: "/dashboard/feed-posts", icon: Newspaper, adminOnly: true },
     ],
   },
@@ -156,7 +160,7 @@ export default function Sidebar({ open = false, onClose }: Props) {
   const visibleSections = menuSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => !item.adminOnly || isAdmin),
+      items: section.items.filter((item) => !item.hidden && (!item.adminOnly || isAdmin)),
     }))
     .filter((section) => section.items.length > 0);
 

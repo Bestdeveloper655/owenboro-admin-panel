@@ -50,7 +50,7 @@ export default function DashboardPage() {
     .filter((section) => section.title !== "Overview")
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => !item.adminOnly || isAdmin),
+      items: section.items.filter((item) => !item.hidden && (!item.adminOnly || isAdmin)),
     }))
     .filter((section) => section.items.length > 0);
 
