@@ -39,6 +39,13 @@ export default function DashboardLayout({
           setTimeout(() => router.replace("/login"), 1500);
           return;
         }
+        // An admin session must come from the emailed-code sign-in, which
+        // adds the `panelOtp` claim (see lib/loginCode.ts).
+        if (role === "admin" && (await user.getIdTokenResult()).claims.panelOtp !== true) {
+          await signOut(auth);
+          router.replace("/login");
+          return;
+        }
         setRole(role);
         setEmail(user.email);
         setLoading(false);
