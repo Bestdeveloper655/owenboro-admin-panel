@@ -102,16 +102,15 @@ export async function sendLoginCode({
 <p style="color:#666">If this wasn't you or your team, someone has the admin password: change it in Firebase Authentication.</p>
 </div>`;
 
-  const res = await fetch("https://api.resend.com/emails", {
+  // One email per recipient, sent in a single batch request, so no one sees
+  // the other addresses (https://resend.com/docs/api-reference/emails/send-batch-emails).
+  const subject = `${code} is your admin panel sign-in code`;
+  const res = await fetch("https://api.resend.com/emails/batch", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from,
-      to: LOGIN_CODE_RECIPIENTS,
-      subject: `${code} is your admin panel sign-in code`,
-      text,
-      html,
-    }),
+    body: JSON.stringify(
+      LOGIN_CODE_RECIPIENTS.map((to) => ({ from, to: [to], subject, text, html })),
+    ),
   });
   if (!res.ok) {
     throw new Error(`Resend ${res.status}: ${(await res.text()).slice(0, 300)}`);
