@@ -75,7 +75,7 @@ export default function Page() {
   const [file, setFile] = useState<File | null>(null);
 
   const [page, setPage] = useState(1);
-  const perPage = 12;
+  const perPage = 25;
 
   /* FETCH */
   const fetchData = async () => {
@@ -374,7 +374,7 @@ export default function Page() {
                       <Fragment key={item.id}>
                         {startsGroup && (
                           <tr className={table.groupRow}>
-                            <td colSpan={4} className="px-4 py-2">
+                            <td colSpan={4} className="px-3 py-1.5">
                               <span className="font-semibold">{item.category || "No category"}</span>
                               <span className="ml-2 text-xs text-black/50">
                                 {groupSize} {groupSize === 1 ? "sub category" : "sub categories"}

@@ -72,7 +72,7 @@ export default function Page() {
 
   /* 🔥 PAGINATION */
   const [page, setPage] = useState(1);
-  const perPage = 8;
+  const perPage = 25;
 
   const totalPages = Math.ceil(categories.length / perPage);
 

@@ -52,7 +52,7 @@ export default function Page() {
   const [tab, setTab] = useState<Tab>("in");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const perPage = 12;
+  const perPage = 25;
 
   useEffect(() => {
     const fetchSubs = async () => {

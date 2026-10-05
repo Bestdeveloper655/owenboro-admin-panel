@@ -141,7 +141,7 @@ export default function Page() {
   const [search, setSearch] = useState("");
 
   const [page, setPage] = useState(1);
-  const perPage = 9;
+  const perPage = 25;
 
   /* FETCH */
   useEffect(() => {
@@ -453,7 +453,7 @@ export default function Page() {
                   return (
                     <tr key={u.id} className={table.row}>
                       <td className={table.td}>
-                        <div className="flex flex-wrap items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
                           <span className="font-semibold">{u.name}</span>
                           {u.isVerified && <VerifiedBadge />}
                           {u.isVip && <VipBadge />}
@@ -464,9 +464,13 @@ export default function Page() {
                           )}
                         </div>
                       </td>
-                      <td className={`${table.td} text-black/70`}>{u.email}</td>
+                      <td className={`${table.td} text-black/70`}>
+                        <span className="block max-w-[220px] truncate" title={u.email}>{u.email}</span>
+                      </td>
                       <td className={`${table.td} whitespace-nowrap`}>{u.phone}</td>
-                      <td className={`${table.td} font-mono text-xs text-black/55`}>{u.uid}</td>
+                      <td className={`${table.td} font-mono text-xs text-black/55`}>
+                        <span className="block max-w-[120px] truncate" title={u.uid}>{u.uid}</span>
+                      </td>
                       <td className={table.td}>{u.gender || "—"}</td>
                       <td className={`${table.td} tabular-nums`}>{u.age ?? "—"}</td>
                       <td className={`${table.td} whitespace-nowrap text-black/60`}>
