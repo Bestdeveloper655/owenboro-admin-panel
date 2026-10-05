@@ -170,7 +170,7 @@ export default function Page() {
   const [pauseAllBusy, setPauseAllBusy] = useState(false);
 
   const [page, setPage] = useState(1);
-  const perPage = 9;
+  const perPage = 25;
 
   /* FETCH GROUPS */
   useEffect(() => {
@@ -704,7 +704,7 @@ export default function Page() {
                     </p>
                   </td>
                   <td className={table.td}>
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 whitespace-nowrap">
                       <Badge tone={g.status === "active" ? "green" : "red"}>
                         {g.status === "active" ? "Active" : "Inactive"}
                       </Badge>

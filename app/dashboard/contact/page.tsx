@@ -49,7 +49,7 @@ export default function Page() {
   const [loadError, setLoadError] = useState("");
 
   const [page, setPage] = useState(1);
-  const perPage = 8;
+  const perPage = 25;
 
     /* FETCH */
   useEffect(() => {
@@ -261,7 +261,7 @@ export default function Page() {
                 return (
                   <tr key={r.id} className={table.row}>
                     <td className={cx(cell, !r.read && "shadow-[inset_3px_0_0_0_#ff7a59]")}>
-                      <span className="flex flex-wrap items-center gap-2">
+                      <span className="flex items-center gap-2 whitespace-nowrap">
                         <span className={r.read ? "text-black/75" : "font-semibold"}>{r.name}</span>
                         {!r.read && <Badge tone="orange">Unread</Badge>}
                       </span>

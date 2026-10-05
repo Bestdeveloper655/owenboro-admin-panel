@@ -100,7 +100,7 @@ const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
 };
 
 const BUTTON_SIZES = {
-  sm: "gap-1.5 rounded-lg px-3 py-1.5 text-xs",
+  sm: "gap-1 rounded-md px-2.5 py-1 text-xs",
   md: "gap-2 rounded-xl px-4 py-2 text-sm",
 };
 
@@ -346,27 +346,28 @@ export function Alert({
 
 /* ---------------------------------------------------------------- TABLES */
 
-/* Class names for a data table, matching the Listings table. Wrap the
+/* Class names for a data table, matching the Listings table. Rows are kept
+ * compact so a screen shows many records (client feedback, Oct 2026). Wrap the
  * <table> in `table.wrap`; give the <table> a min width (e.g.
  * `min-w-[760px]`) so it scrolls sideways on phones instead of squashing. */
 export const table = {
   wrap: "overflow-x-auto rounded-2xl border border-white/10",
-  table: "w-full text-left text-sm",
-  thead: "bg-[#e3d7bc] text-xs uppercase tracking-wide text-black/60",
-  th: "px-4 py-3 font-semibold whitespace-nowrap",
+  table: "w-full text-left text-[13px]",
+  thead: "bg-[#e3d7bc] text-[11px] uppercase tracking-wide text-black/60",
+  th: "px-3 py-2 font-semibold whitespace-nowrap",
   row: "border-b border-black/10 bg-[#ece2cb] text-black transition last:border-b-0 hover:bg-[#f5ecd7]",
-  td: "px-4 py-3",
+  td: "px-3 py-1.5",
   groupRow: "border-b border-black/10 bg-[#d9cbab] text-black",
   /* Thumbnail image in a cell, and the placeholder when there is none. */
-  thumb: "h-12 w-12 rounded-lg border border-black/10 object-cover",
+  thumb: "h-9 w-9 rounded-md border border-black/10 object-cover",
   thumbEmpty:
-    "flex h-12 w-12 items-center justify-center rounded-lg border border-black/10 bg-black/5 text-[10px] text-black/35",
+    "flex h-9 w-9 items-center justify-center rounded-md border border-black/10 bg-black/5 text-[9px] text-black/35",
   /* Banner-shaped variants. */
-  thumbWide: "h-12 w-20 rounded-lg border border-black/10 object-cover",
+  thumbWide: "h-9 w-16 rounded-md border border-black/10 object-cover",
   thumbWideEmpty:
-    "flex h-12 w-20 items-center justify-center rounded-lg border border-black/10 bg-black/5 text-[10px] text-black/35",
+    "flex h-9 w-16 items-center justify-center rounded-md border border-black/10 bg-black/5 text-[9px] text-black/35",
   /* Right-aligned cell holding the row's action buttons. */
-  actions: "flex justify-end gap-2",
+  actions: "flex justify-end gap-1.5",
 };
 
 /* -------------------------------------------------------------- FILTERS */

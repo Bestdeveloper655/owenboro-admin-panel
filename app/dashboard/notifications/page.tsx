@@ -141,7 +141,7 @@ export default function Page() {
   const [userSearch, setUserSearch] = useState("");
 
   const [page, setPage] = useState(1);
-  const perPage = 9;
+  const perPage = 25;
 
   // ── Fetch notifications ────────────────────────────────────────────────────
   const fetchData = async () => {

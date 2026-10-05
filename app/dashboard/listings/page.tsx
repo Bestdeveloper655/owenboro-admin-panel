@@ -744,7 +744,7 @@ export default function Page() {
                   <Fragment key={l.id}>
                     {startsGroup && (
                       <tr className={table.groupRow}>
-                        <td colSpan={6} className="px-4 py-2">
+                        <td colSpan={6} className="px-3 py-1.5">
                           <span className="font-semibold">{l.category || "No category"}</span>
                           {l.subCategory && (
                             <span className="text-black/70"> › {l.subCategory}</span>
@@ -771,7 +771,9 @@ export default function Page() {
                       </td>
 
                       <td className={table.td}>
-                        <p className="font-semibold">{l.title || "Untitled listing"}</p>
+                        <p className="max-w-[260px] truncate font-semibold" title={l.title || undefined}>
+                          {l.title || "Untitled listing"}
+                        </p>
                         {l.staleCategory && (
                           <Badge
                             tone="amber"
