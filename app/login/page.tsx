@@ -8,7 +8,7 @@ import { auth } from "@/lib/firebaseServices";
 // Sign-in is two steps for admins: password, then a 6-digit code emailed to
 // the owners (see lib/loginCode.ts). Moderators go straight in after step 1.
 
-type Challenge = { challengeId: string; sentTo: string[]; expiresInMinutes: number };
+type Challenge = { challengeId: string; sentTo: string; expiresInMinutes: number };
 
 const inputClass =
   "mt-2 w-full rounded-xl border border-white/25 bg-black px-4 py-3 text-white outline-none focus:border-[#ff7a59]";
@@ -110,7 +110,7 @@ export default function Page() {
 
         {challenge ? (
           <p className="mt-2 text-center text-sm text-[#e8dcc7]">
-            We emailed a 6-digit code to {challenge.sentTo.join(", ")}. It expires in{" "}
+            We emailed a 6-digit code to {challenge.sentTo}. It expires in{" "}
             {challenge.expiresInMinutes} minutes.
           </p>
         ) : (

@@ -3,7 +3,6 @@ import { getAdmin } from "@/lib/serverNotify";
 import {
   CODE_TTL_MS,
   CODES_COLLECTION,
-  LOGIN_CODE_RECIPIENTS,
   RESEND_COOLDOWN_MS,
   hashCode,
   maskEmail,
@@ -86,7 +85,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     needsCode: true,
     challengeId,
-    sentTo: LOGIN_CODE_RECIPIENTS.map(maskEmail),
+    // Only the signed-in account is shown; the owner list stays server-side.
+    sentTo: maskEmail(email),
     expiresInMinutes: CODE_TTL_MS / 60_000,
   });
 }
