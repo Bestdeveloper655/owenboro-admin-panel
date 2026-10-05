@@ -18,6 +18,14 @@ export const LOGIN_CODE_RECIPIENTS = process.env.LOGIN_CODE_RECIPIENTS
       "developers@techorphic.com",
     ];
 
+// Optional fixed code for testing (client request, 5 Oct 2026). When
+// LOGIN_CODE_TEST_CODE is set to 6 digits, it is accepted alongside the emailed
+// code (which is still sent), with the same expiry and attempt limit. Anyone
+// who knows it needs only the password, so leave it unset in production.
+export const TEST_CODE = /^\d{6}$/.test(process.env.LOGIN_CODE_TEST_CODE ?? "")
+  ? (process.env.LOGIN_CODE_TEST_CODE as string)
+  : null;
+
 export const PANEL_OTP_CLAIM = "panelOtp";
 
 // Pending codes, one doc per sign-in attempt, keyed by an unguessable id.
