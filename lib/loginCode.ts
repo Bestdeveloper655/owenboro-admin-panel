@@ -7,11 +7,16 @@ import { createHash, randomBytes, randomInt, timingSafeEqual } from "crypto";
 // claim, so the password alone can't use admin powers. Moderators sign in with
 // their password only. Server-only — never import from a client component.
 
-export const LOGIN_CODE_RECIPIENTS = [
-  "theowensboroapp@gmail.com",
-  "danyalahmed655@gmail.com",
-  "developers@techorphic.com",
-];
+// LOGIN_CODE_RECIPIENTS (comma-separated) overrides the list. It's for testing
+// with Resend's shared onboarding@resend.dev sender, which only delivers to the
+// Resend account's own email until theowensboroapp.com is verified.
+export const LOGIN_CODE_RECIPIENTS = process.env.LOGIN_CODE_RECIPIENTS
+  ? process.env.LOGIN_CODE_RECIPIENTS.split(",").map((e) => e.trim()).filter(Boolean)
+  : [
+      "theowensboroapp@gmail.com",
+      "danyalahmed655@gmail.com",
+      "developers@techorphic.com",
+    ];
 
 export const PANEL_OTP_CLAIM = "panelOtp";
 
