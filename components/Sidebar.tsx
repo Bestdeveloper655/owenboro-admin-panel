@@ -12,6 +12,7 @@ import {
   Flag,
   FolderTree,
   GalleryHorizontalEnd,
+  Ghost,
   Heart,
   Layers,
   LayoutDashboard,
@@ -82,6 +83,8 @@ export const menuSections: MenuSection[] = [
       { name: "Groups", path: "/dashboard/groups", icon: UsersRound },
       { name: "Meetups", path: "/dashboard/meetups", icon: CalendarDays },
       { name: "Polls & Questions", path: "/dashboard/polls", icon: ChartColumn },
+      // Moderators review entries here; only admins can flip the on/off switch.
+      { name: "Costume Contest", path: "/dashboard/costume-contest", icon: Ghost },
       { name: "Verify Photos", path: "/dashboard/verify-photos", icon: BadgeCheck },
     ],
   },
