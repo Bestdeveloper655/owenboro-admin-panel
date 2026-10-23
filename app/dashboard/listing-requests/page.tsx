@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import PhotoCarousel from "@/components/PhotoCarousel";
 import {
   AlertTriangle,
   Check,
@@ -574,32 +575,7 @@ function RequestDetails({ r }: { r: ListingRequest }) {
   ];
   return (
     <div className="space-y-4 text-black">
-      <div>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={r.images[0]} alt="" className="max-h-72 w-full rounded-2xl bg-black/5 object-cover" />
-        {r.images.length > 1 && (
-          <div className="mt-2 grid grid-cols-5 gap-2 sm:grid-cols-6">
-            {r.images.map((url, i) => (
-              <a
-                key={`${i}-${url}`}
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="relative block aspect-square overflow-hidden rounded-lg border border-black/10 bg-black/5"
-                title={i === 0 ? "Cover photo" : `Photo ${i + 1}`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="" className="h-full w-full object-cover" />
-                {i === 0 && (
-                  <Badge tone="orange" className="absolute top-1 left-1">
-                    Cover
-                  </Badge>
-                )}
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
+      <PhotoCarousel images={r.images} />
 
       <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[9rem_1fr]">
         {rows
