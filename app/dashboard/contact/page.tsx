@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCheck, Download, Inbox, Mail, Trash2 } from "lucide-react";
+import { CheckCheck, Download, Inbox, Mail, Megaphone, Phone, Reply, Trash2 } from "lucide-react";
 import {
   collection,
   deleteDoc,
@@ -37,14 +37,26 @@ type Request = {
   message: string;
   timestamp: any;
   read: boolean;
+  /* What it's about, picked in the app ("" on messages from older builds). */
+  topic: string;
+  /* "advertise" from Advertise with Us, else Contact Us. */
+  source: string;
+  businessName: string;
+  phone: string;
+  interests: string[];
 };
+
+type Filter = "all" | "unread" | "advertising";
+
+const isAdvertising = (r: Request) => r.source === "advertise" || r.topic === "Advertising";
 
 export default function Page() {
   const [requests, setRequests] = useState<Request[]>([]);
   const [selected, setSelected] = useState<Request | null>(null);
   const [deleting, setDeleting] = useState<Request | null>(null);
   const [busy, setBusy] = useState(false);
-  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [filter, setFilter] = useState<Filter>("all");
+  const showUnreadOnly = filter === "unread";
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -67,6 +79,13 @@ export default function Page() {
             message: x.message,
             timestamp: x.timestamp,
             read: x.read === true,
+            topic: typeof x.topic === "string" ? x.topic : "",
+            source: typeof x.source === "string" ? x.source : "",
+            businessName: typeof x.businessName === "string" ? x.businessName : "",
+            phone: typeof x.phone === "string" ? x.phone : "",
+            interests: Array.isArray(x.interests)
+              ? x.interests.filter((i: unknown): i is string => typeof i === "string")
+              : [],
           };
         });
 
@@ -83,9 +102,15 @@ export default function Page() {
   }, []);
 
   const unreadCount = requests.filter((r) => !r.read).length;
+  const advertisingCount = requests.filter(isAdvertising).length;
   const visible = useMemo(
-    () => (showUnreadOnly ? requests.filter((r) => !r.read) : requests),
-    [requests, showUnreadOnly],
+    () =>
+      filter === "unread"
+        ? requests.filter((r) => !r.read)
+        : filter === "advertising"
+          ? requests.filter(isAdvertising)
+          : requests,
+    [requests, filter],
   );
 
   /* READ STATE */
@@ -152,11 +177,15 @@ export default function Page() {
   const exportToCSV = () => {
     if (requests.length === 0) return;
 
-    const headers = ["Name", "Email", "Message", "Date"];
+    const headers = ["Name", "Email", "Topic", "Business", "Phone", "Interests", "Message", "Date"];
 
     const rows = requests.map((r) => [
       r.name,
       r.email,
+      r.topic,
+      r.businessName,
+      r.phone,
+      r.interests.join("; "),
       r.message?.replace(/\n/g, " "),
       r.timestamp?.toDate
         ? r.timestamp.toDate().toLocaleString()
@@ -208,15 +237,16 @@ export default function Page() {
       </PageHeader>
 
       <Toolbar>
-        <Segmented<"all" | "unread">
-          value={showUnreadOnly ? "unread" : "all"}
+        <Segmented<Filter>
+          value={filter}
           onChange={(value) => {
-            setShowUnreadOnly(value === "unread");
+            setFilter(value);
             setPage(1);
           }}
           options={[
             { value: "all", label: "All", count: requests.length },
             { value: "unread", label: "Unread", count: unreadCount },
+            { value: "advertising", label: "Advertising", count: advertisingCount },
           ]}
         />
 
@@ -239,7 +269,13 @@ export default function Page() {
       ) : visible.length === 0 ? (
         <EmptyState
           icon={Inbox}
-          title={showUnreadOnly ? "No unread messages." : "No support requests yet."}
+          title={
+            showUnreadOnly
+              ? "No unread messages."
+              : filter === "advertising"
+                ? "No advertising inquiries yet."
+                : "No support requests yet."
+          }
         />
       ) : (
         <div className={table.wrap}>
@@ -248,6 +284,7 @@ export default function Page() {
               <tr>
                 <th className={table.th}>Name</th>
                 <th className={table.th}>Email</th>
+                <th className={table.th}>Topic</th>
                 <th className={table.th}>Message</th>
                 <th className={table.th}>Date</th>
                 <th className={`${table.th} text-right`}>Action</th>
@@ -273,8 +310,21 @@ export default function Page() {
                       </span>
                     </td>
 
+                    <td className={cx(cell, "whitespace-nowrap")}>
+                      {r.topic ? (
+                        <Badge tone={isAdvertising(r) ? "orange" : "blue"}>{r.topic}</Badge>
+                      ) : (
+                        <span className="text-black/35">—</span>
+                      )}
+                    </td>
+
                     <td className={cx(cell, r.read ? "text-black/55" : "text-black/80")}>
-                      <span className="block max-w-[320px] truncate">{r.message}</span>
+                      <span className="block max-w-[280px] truncate">
+                        {r.businessName && (
+                          <span className="font-semibold">{r.businessName} · </span>
+                        )}
+                        {r.message}
+                      </span>
                     </td>
 
                     <td className={cx(cell, "whitespace-nowrap text-black/60")}>
@@ -316,10 +366,22 @@ export default function Page() {
       {/* VIEW MODAL */}
       {selected && (
         <Modal
-          title="Support Request"
+          title={isAdvertising(selected) ? "Advertising inquiry" : "Support Request"}
+          description={selected.topic || undefined}
           onClose={() => setSelected(null)}
           footer={
             <>
+              <Button
+                icon={Reply}
+                onClick={() => {
+                  const subject = encodeURIComponent(
+                    `Re: ${selected.topic || "Your message to The Owensboro App"}`,
+                  );
+                  window.location.href = `mailto:${selected.email}?subject=${subject}`;
+                }}
+              >
+                Reply by email
+              </Button>
               <Button
                 variant="light"
                 icon={Mail}
@@ -345,6 +407,55 @@ export default function Page() {
               <dt className="text-xs font-semibold tracking-wide text-black/50 uppercase">Email</dt>
               <dd className="mt-0.5 break-all">{selected.email}</dd>
             </div>
+            {selected.topic && (
+              <div className="min-w-0">
+                <dt className="text-xs font-semibold tracking-wide text-black/50 uppercase">Topic</dt>
+                <dd className="mt-1">
+                  <Badge tone={isAdvertising(selected) ? "orange" : "blue"}>
+                    {selected.topic}
+                  </Badge>
+                </dd>
+              </div>
+            )}
+            {selected.businessName && (
+              <div className="min-w-0">
+                <dt className="text-xs font-semibold tracking-wide text-black/50 uppercase">
+                  Business
+                </dt>
+                <dd className="mt-0.5 flex items-center gap-1.5 font-medium wrap-break-word">
+                  <Megaphone className="h-3.5 w-3.5 text-black/40" aria-hidden />
+                  {selected.businessName}
+                </dd>
+              </div>
+            )}
+            {selected.phone && (
+              <div className="min-w-0">
+                <dt className="text-xs font-semibold tracking-wide text-black/50 uppercase">Phone</dt>
+                <dd className="mt-0.5">
+                  <a
+                    href={`tel:${selected.phone}`}
+                    className="inline-flex items-center gap-1.5 text-blue-700 underline-offset-2 hover:underline"
+                  >
+                    <Phone className="h-3.5 w-3.5" aria-hidden />
+                    {selected.phone}
+                  </a>
+                </dd>
+              </div>
+            )}
+            {selected.interests.length > 0 && (
+              <div className="min-w-0 sm:col-span-2">
+                <dt className="text-xs font-semibold tracking-wide text-black/50 uppercase">
+                  Interested in
+                </dt>
+                <dd className="mt-1 flex flex-wrap gap-1.5">
+                  {selected.interests.map((i) => (
+                    <Badge key={i} tone="dark">
+                      {i}
+                    </Badge>
+                  ))}
+                </dd>
+              </div>
+            )}
           </dl>
 
           <p className="mt-5 mb-2 text-xs font-semibold tracking-wide text-black/50 uppercase">
