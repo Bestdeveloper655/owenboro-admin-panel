@@ -20,6 +20,7 @@ import {
   LifeBuoy,
   ListOrdered,
   Mail,
+  MessageCircleQuestionMark,
   Newspaper,
   PanelTop,
   ShieldCheck,
@@ -86,6 +87,8 @@ export const menuSections: MenuSection[] = [
       { name: "Groups", path: "/dashboard/groups", icon: UsersRound },
       { name: "Meetups", path: "/dashboard/meetups", icon: CalendarDays },
       { name: "Polls & Questions", path: "/dashboard/polls", icon: ChartColumn },
+      // Writes daily_questions, which only admins may change.
+      { name: "Question of the Day", path: "/dashboard/question-of-the-day", icon: MessageCircleQuestionMark, adminOnly: true },
       // Moderators review entries here; only admins can flip the on/off switch.
       { name: "Costume Contest", path: "/dashboard/costume-contest", icon: Ghost },
       { name: "Verify Photos", path: "/dashboard/verify-photos", icon: BadgeCheck },
