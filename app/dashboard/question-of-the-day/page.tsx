@@ -12,6 +12,7 @@ import {
   PencilLine,
   Plus,
   RefreshCw,
+  Reply,
   Trash2,
 } from "lucide-react";
 import {
@@ -51,13 +52,16 @@ import {
 
 /*
  * The app's "Question of the Day" (Oct 2026). The app reads
- * `daily_questions/{YYYY-MM-DD}` for the phone's local date and, when there
- * is no doc for that day, shows a built-in question; answers are saved under
- * `daily_questions/{day}/answers/{uid}` either way, so a day can have answers
- * without a question doc. Only admins write the question docs (Firestore
- * rules); admins and moderators may delete any answer.
+ * `daily_questions/{YYYY-MM-DD}` for the current question day and, when
+ * there is no doc for that day, shows a built-in question. Each day has a
+ * chat, `daily_questions/{day}/messages/{autoId}`, whether or not it has a
+ * question doc: `isAnswer` marks a user's answer to the question, the rest
+ * are ordinary chat messages (optionally replies). Only admins write the
+ * question docs (Firestore rules); nobody updates a message, and its author or
+ * a moderator/admin may delete it.
  *
- * Days here are Owensboro (Central) dates, which is what users' phones show.
+ * A question day starts at 4:00 AM Central and runs until 4:00 AM the next
+ * day, the same rule the app uses.
  */
 
 type DailyQuestion = {
@@ -67,47 +71,64 @@ type DailyQuestion = {
   updatedAt: Date | null;
 };
 
-type Answer = {
+type Message = {
+  id: string;
   uid: string;
   userName: string;
   userPhoto: string;
-  answer: string;
-  /* The question text the user saw when answering. */
+  text: string;
+  isAnswer: boolean;
+  /* On answers: the question text the user saw. */
   question: string;
+  replyToId: string;
+  replyToName: string;
+  replyToText: string;
   createdAt: Date | null;
-  updatedAt: Date | null;
 };
 
+type DayCount = { answers: number; messages: number };
+
 /* null: the count failed; missing: still loading. */
-type Counts = Record<string, number | null>;
+type Counts = Record<string, DayCount | null>;
 
 const TZ = "America/Chicago";
+/* Central wall-clock hour at which a new question day starts. */
+const ROLLOVER_HOUR = 4;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_LENGTH = 200;
 const SCHEDULE_DAYS = 14;
 const PAST_DAYS = 30;
 /* Most lines one bulk add takes (and how many unset days it looks ahead). */
 const BULK_MAX = 60;
-const ANSWERS_PAGE = 100;
+const MESSAGES_PAGE = 100;
 
 const FALLBACK_HINT = "Not set — the app uses a built-in question";
+const ROLLOVER_HINT =
+  "Each question goes live at 4:00 AM Central and runs until 4:00 AM the next day.";
 
-/* Today's "YYYY-MM-DD" in Owensboro. */
+/* Calendar arithmetic on day ids, independent of the browser's time zone. */
+function addDays(id: string, n: number): string {
+  const [y, m, d] = id.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/* The current question day, "YYYY-MM-DD": the Central wall-clock date, or the
+ * day before it until 4:00 AM. Read from the wall clock rather than by
+ * shifting the instant 4 hours, which is wrong on DST change days. */
 function todayId(): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: TZ,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
   }).formatToParts(new Date());
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-/* Calendar arithmetic on day ids, independent of the browser's time zone. */
-function addDays(id: string, n: number): string {
-  const [y, m, d] = id.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+  const date = `${get("year")}-${get("month")}-${get("day")}`;
+  // Some engines print midnight as "24" even with h23.
+  const hour = Number(get("hour")) % 24;
+  return hour < ROLLOVER_HOUR ? addDays(date, -1) : date;
 }
 
 /* "Fri, Oct 24" for a day id. */
@@ -135,6 +156,8 @@ const normalize = (s: string) => s.replace(/\s+/g, " ").trim();
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
+
 function readQuestion(id: string, d: DocumentData): DailyQuestion {
   const ts = (v: unknown) => (v && typeof v === "object" && "toDate" in v ? (v as Timestamp) : null);
   return {
@@ -145,17 +168,21 @@ function readQuestion(id: string, d: DocumentData): DailyQuestion {
   };
 }
 
-function readAnswer(id: string, d: DocumentData): Answer {
+function readMessage(id: string, d: DocumentData): Message {
   const text = (v: unknown) => (typeof v === "string" ? v : "");
   const ts = (v: unknown) => (v && typeof v === "object" && "toDate" in v ? (v as Timestamp) : null);
   return {
-    uid: text(d.uid) || id,
+    id,
+    uid: text(d.uid),
     userName: text(d.userName),
     userPhoto: text(d.userPhoto),
-    answer: text(d.answer),
+    text: text(d.text),
+    isAnswer: d.isAnswer === true,
     question: text(d.question),
+    replyToId: text(d.replyToId),
+    replyToName: text(d.replyToName),
+    replyToText: text(d.replyToText),
     createdAt: ts(d.createdAt)?.toDate() ?? null,
-    updatedAt: ts(d.updatedAt)?.toDate() ?? null,
   };
 }
 
@@ -165,15 +192,20 @@ function describeError(err: unknown, fallback: string) {
   return message || fallback;
 }
 
-/* Answer counts per day, one aggregation query each (a read per 1,000 answers). */
-async function countAnswers(days: string[]): Promise<Counts> {
+/* Answers and all messages per day: two aggregation queries each (a read per
+ * 1,000 messages counted), no documents downloaded. */
+async function countMessages(days: string[]): Promise<Counts> {
   const results = await Promise.all(
     days.map(async (day) => {
+      const messages = collection(db, "daily_questions", day, "messages");
       try {
-        const snap = await getCountFromServer(collection(db, "daily_questions", day, "answers"));
-        return [day, snap.data().count] as const;
+        const [answers, all] = await Promise.all([
+          getCountFromServer(query(messages, where("isAnswer", "==", true))),
+          getCountFromServer(messages),
+        ]);
+        return [day, { answers: answers.data().count, messages: all.data().count }] as const;
       } catch (err) {
-        console.error(`Answer count for ${day} failed:`, err);
+        console.error(`Message counts for ${day} failed:`, err);
         return [day, null] as const;
       }
     }),
@@ -196,7 +228,9 @@ export default function QuestionOfTheDayPage() {
   const [attempt, setAttempt] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
 
-  // Roll the schedule over at Owensboro midnight if the page is left open.
+  // Roll the page over to the next question day at 4:00 AM Central if it is
+  // left open. Checking the wall clock each minute (rather than one long
+  // timer) also holds across sleep and DST changes.
   useEffect(() => {
     const timer = setInterval(() => setToday(todayId()), 60_000);
     return () => clearInterval(timer);
@@ -240,7 +274,7 @@ export default function QuestionOfTheDayPage() {
   // Counted once per load (and on "Refresh counts"), not on every snapshot.
   useEffect(() => {
     let live = true;
-    countAnswers([today, ...pastDays]).then((c) => {
+    countMessages([today, ...pastDays]).then((c) => {
       if (live) setCounts(c);
     });
     return () => {
@@ -266,7 +300,7 @@ export default function QuestionOfTheDayPage() {
   }, [questions, today]);
 
   const clear = async (day: string) => {
-    const n = counts[day];
+    const n = counts[day]?.answers;
     const keeps = n ? ` The ${plural(n, "answer")} already given stay.` : "";
     if (
       !window.confirm(
@@ -297,7 +331,7 @@ export default function QuestionOfTheDayPage() {
     <div>
       <PageHeader
         title="Question of the Day"
-        description="One question a day in the app. Set questions ahead of time; any day left empty shows one of the app's built-in questions, and people can answer either way."
+        description="One question a day in the app, with a chat for that day. Set questions ahead of time; any day left empty shows one of the app's built-in questions, and people can answer and chat either way."
         actions={
           <Button
             variant="outline"
@@ -310,8 +344,7 @@ export default function QuestionOfTheDayPage() {
         }
       >
         <p className="mt-2 text-xs text-[#f4ead7]/50">
-          Days follow Owensboro (Central) time, the date on people&apos;s phones. Today is{" "}
-          {dayLabel(today)}.
+          {ROLLOVER_HINT} The current question day is {dayLabel(today)}.
         </p>
       </PageHeader>
 
@@ -356,7 +389,7 @@ export default function QuestionOfTheDayPage() {
                 clearing={clearing === day}
                 onEdit={() => setEditing(day)}
                 onClear={() => clear(day)}
-                onViewAnswers={i === 0 ? () => setViewing(day) : undefined}
+                onViewChat={i === 0 ? () => setViewing(day) : undefined}
               />
             ))}
           </div>
@@ -386,7 +419,7 @@ export default function QuestionOfTheDayPage() {
           <SectionHeading
             className="mt-8"
             title="Past 30 days"
-            description="Each day's question and how many people answered. Open a day to read or remove answers."
+            description="Each day's question, how many people answered and how many chat messages were sent. Open a day's chat to read or remove messages."
             actions={
               <Button
                 variant="secondary"
@@ -405,6 +438,7 @@ export default function QuestionOfTheDayPage() {
                   <th className={table.th}>Day</th>
                   <th className={table.th}>Question</th>
                   <th className={cx(table.th, "text-right")}>Answers</th>
+                  <th className={cx(table.th, "text-right")}>Messages</th>
                   <th className={table.th}>
                     <span className="sr-only">Actions</span>
                   </th>
@@ -427,7 +461,10 @@ export default function QuestionOfTheDayPage() {
                         )}
                       </td>
                       <td className={cx(table.td, "text-right tabular-nums")}>
-                        <CountCell count={n} />
+                        <CountCell count={n} field="answers" />
+                      </td>
+                      <td className={cx(table.td, "text-right tabular-nums")}>
+                        <CountCell count={n} field="messages" />
                       </td>
                       <td className={table.td}>
                         <div className={table.actions}>
@@ -436,9 +473,9 @@ export default function QuestionOfTheDayPage() {
                             variant="light"
                             icon={MessagesSquare}
                             onClick={() => setViewing(day)}
-                            disabled={n === 0}
+                            disabled={n?.messages === 0}
                           >
-                            Answers
+                            Chat
                           </Button>
                         </div>
                       </td>
@@ -456,7 +493,7 @@ export default function QuestionOfTheDayPage() {
           day={editing}
           isToday={editing === today}
           current={questions.get(editing)}
-          answered={editing === today ? counts[today] : undefined}
+          answered={editing === today ? counts[today]?.answers : undefined}
           onClose={() => setEditing(null)}
           onSaved={(message) => {
             setEditing(null);
@@ -477,14 +514,21 @@ export default function QuestionOfTheDayPage() {
       )}
 
       {viewing && questions && (
-        <AnswersModal
+        <ChatModal
           day={viewing}
           question={questions.get(viewing)?.question ?? ""}
           onClose={() => setViewing(null)}
-          onDeleted={() =>
+          onDeleted={(m) =>
             setCounts((prev) => {
               const n = prev[viewing];
-              return typeof n === "number" ? { ...prev, [viewing]: Math.max(0, n - 1) } : prev;
+              if (!n) return prev;
+              return {
+                ...prev,
+                [viewing]: {
+                  answers: Math.max(0, n.answers - (m.isAnswer ? 1 : 0)),
+                  messages: Math.max(0, n.messages - 1),
+                },
+              };
             })
           }
         />
@@ -493,16 +537,22 @@ export default function QuestionOfTheDayPage() {
   );
 }
 
-function CountCell({ count }: { count: number | null | undefined }) {
+function CountCell({
+  count,
+  field,
+}: {
+  count: DayCount | null | undefined;
+  field: keyof DayCount;
+}) {
   if (count === undefined) return <Spinner className="ml-auto h-3.5 w-3.5" />;
   if (count === null) {
     return (
-      <span className="text-black/40" title="Couldn't count the answers. Try Refresh counts.">
+      <span className="text-black/40" title="Couldn't count the messages. Try Refresh counts.">
         —
       </span>
     );
   }
-  return <>{count}</>;
+  return <>{count[field]}</>;
 }
 
 function DayRow({
@@ -513,17 +563,17 @@ function DayRow({
   clearing,
   onEdit,
   onClear,
-  onViewAnswers,
+  onViewChat,
 }: {
   day: string;
   tag?: string;
   question: DailyQuestion | undefined;
   /* Only shown for today. */
-  count?: number | null;
+  count?: DayCount | null;
   clearing: boolean;
   onEdit: () => void;
   onClear: () => void;
-  onViewAnswers?: () => void;
+  onViewChat?: () => void;
 }) {
   const [weekday, ...rest] = dayLabel(day).split(", ");
   return (
@@ -569,12 +619,17 @@ function DayRow({
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-        {onViewAnswers && (
-          <Button size="sm" variant="secondary" icon={MessagesSquare} onClick={onViewAnswers}>
-            Answers
-            {typeof count === "number" && (
+        {onViewChat && (
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={MessagesSquare}
+            onClick={onViewChat}
+          >
+            Chat
+            {count && (
               <span className="rounded-full bg-white/10 px-1.5 text-[11px] font-semibold tabular-nums">
-                {count}
+                {plural(count.answers, "answer")} · {plural(count.messages, "message")}
               </span>
             )}
           </Button>
@@ -840,7 +895,7 @@ function BulkModal({
   );
 }
 
-function AnswersModal({
+function ChatModal({
   day,
   question,
   onClose,
@@ -850,29 +905,30 @@ function AnswersModal({
   /* The day's question doc text; "" when the app showed a built-in one. */
   question: string;
   onClose: () => void;
-  onDeleted: () => void;
+  onDeleted: (m: Message) => void;
 }) {
-  const [answers, setAnswers] = useState<Answer[] | null>(null);
-  const [max, setMax] = useState(ANSWERS_PAGE);
+  const [messages, setMessages] = useState<Message[] | null>(null);
+  const [max, setMax] = useState(MESSAGES_PAGE);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [loadFailed, setLoadFailed] = useState(false);
 
+  // Newest first, a page at a time; "Show older" raises the limit.
   useEffect(
     () =>
       onSnapshot(
         query(
-          collection(db, "daily_questions", day, "answers"),
+          collection(db, "daily_questions", day, "messages"),
           orderBy("createdAt", "desc"),
           limit(max),
         ),
         (snap) => {
           setLoadFailed(false);
-          setAnswers(snap.docs.map((d) => readAnswer(d.id, d.data())));
+          setMessages(snap.docs.map((d) => readMessage(d.id, d.data())));
         },
         (err) => {
-          console.error(`Answers for ${day} failed to load:`, err);
+          console.error(`Chat for ${day} failed to load:`, err);
           setLoadFailed(true);
         },
       ),
@@ -881,24 +937,26 @@ function AnswersModal({
 
   // The app's built-in question isn't stored, but every answer records the
   // text it was given for.
-  const shownQuestion = question || answers?.[0]?.question || "";
+  const shownQuestion = question || messages?.find((m) => m.isAnswer)?.question || "";
 
-  const remove = async (a: Answer) => {
-    const preview = a.answer.length > 80 ? `${a.answer.slice(0, 80)}…` : a.answer;
-    if (!window.confirm(`Delete this answer from ${a.userName || "this user"}?\n\n"${preview}"`)) {
+  const remove = async (m: Message) => {
+    const kind = m.isAnswer ? "answer" : "message";
+    if (
+      !window.confirm(`Delete this ${kind} from ${m.userName || "this user"}?\n\n"${clip(m.text, 80)}"`)
+    ) {
       return;
     }
-    setDeleting(a.uid);
+    setDeleting(m.id);
     setError("");
     try {
-      await deleteDoc(doc(db, "daily_questions", day, "answers", a.uid));
-      onDeleted();
+      await deleteDoc(doc(db, "daily_questions", day, "messages", m.id));
+      onDeleted(m);
     } catch (err) {
       const { code } = (err ?? {}) as { code?: string };
       setError(
         code === "permission-denied"
-          ? "Only admins and moderators can delete answers."
-          : describeError(err, "Couldn't delete this answer."),
+          ? "Only admins and moderators can delete messages."
+          : describeError(err, `Couldn't delete this ${kind}.`),
       );
     } finally {
       setDeleting(null);
@@ -907,7 +965,7 @@ function AnswersModal({
 
   return (
     <Modal
-      title={`Answers · ${dayLabel(day)}`}
+      title={`Chat · ${dayLabel(day)}`}
       description={
         question ||
         (shownQuestion
@@ -925,66 +983,73 @@ function AnswersModal({
       {loadFailed ? (
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-black/15 bg-black/5 px-4 py-8 text-center text-sm text-black/60">
           <AlertTriangle className="h-5 w-5 text-red-500" aria-hidden />
-          Couldn&apos;t load the answers.
+          Couldn&apos;t load the chat.
           <Button
             size="sm"
             variant="light"
             icon={RefreshCw}
             onClick={() => {
               setLoadFailed(false);
-              setAnswers(null);
+              setMessages(null);
               setAttempt((n) => n + 1);
             }}
           >
             Try again
           </Button>
         </div>
-      ) : answers === null ? (
+      ) : messages === null ? (
         <p className="flex items-center justify-center gap-2 py-8 text-sm text-black/55">
           <Spinner className="h-4 w-4" />
-          Loading answers…
+          Loading chat…
         </p>
-      ) : answers.length === 0 ? (
+      ) : messages.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-black/15 bg-black/5 px-4 py-8 text-center text-sm text-black/50">
           <History className="h-5 w-5" aria-hidden />
-          No answers for this day.
+          No messages for this day.
         </div>
       ) : (
         <>
+          <p className="mb-2 text-xs text-black/50">Newest first.</p>
           <ul className="space-y-2">
-            {answers.map((a) => (
+            {messages.map((m) => (
               <li
-                key={a.uid}
-                className="flex items-start gap-3 rounded-xl border border-black/5 bg-[#f5ecd7] px-3 py-2.5 text-sm"
+                key={m.id}
+                className={cx(
+                  "flex items-start gap-3 rounded-xl border px-3 py-2.5 text-sm",
+                  m.isAnswer ? "border-emerald-300 bg-emerald-50" : "border-black/5 bg-[#f5ecd7]",
+                )}
               >
-                {a.userPhoto ? (
+                {m.userPhoto ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={a.userPhoto}
+                    src={m.userPhoto}
                     alt=""
                     className="h-9 w-9 shrink-0 rounded-full border border-black/10 object-cover"
                   />
                 ) : (
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/10 text-xs font-semibold text-black/50">
-                    {(a.userName || "?").charAt(0).toUpperCase()}
+                    {(m.userName || "?").charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="font-semibold">{a.userName || "Unknown"}</span>
-                    <span className="text-xs text-black/45">
-                      {formatDate(a.createdAt)}
-                      {a.updatedAt &&
-                      a.createdAt &&
-                      a.updatedAt.getTime() - a.createdAt.getTime() > 1000
-                        ? " · edited"
-                        : ""}
-                    </span>
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-semibold">{m.userName || "Unknown"}</span>
+                    {m.isAnswer && <Badge tone="green">Answer</Badge>}
+                    <span className="text-xs text-black/45">{formatDate(m.createdAt)}</span>
                   </p>
-                  <p className="mt-0.5 break-words whitespace-pre-line text-black/80">{a.answer}</p>
-                  {a.question && a.question !== shownQuestion && (
+                  {(m.replyToName || m.replyToText) && (
+                    <div className="mt-1 flex gap-1.5 border-l-2 border-black/20 pl-2 text-xs text-black/55">
+                      <Reply className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                      <span className="min-w-0 break-words">
+                        <span className="font-semibold">{m.replyToName || "a message"}</span>
+                        {m.replyToText ? `: ${clip(m.replyToText, 140)}` : ""}
+                      </span>
+                    </div>
+                  )}
+                  <p className="mt-0.5 break-words whitespace-pre-line text-black/80">{m.text}</p>
+                  {m.isAnswer && m.question && m.question !== shownQuestion && (
                     <p className="mt-1 text-xs break-words text-black/45">
-                      Answered: “{a.question}”
+                      Answered: “{m.question}”
                     </p>
                   )}
                 </div>
@@ -992,19 +1057,19 @@ function AnswersModal({
                   size="sm"
                   variant="danger"
                   icon={Trash2}
-                  loading={deleting === a.uid}
-                  disabled={deleting !== null && deleting !== a.uid}
-                  onClick={() => remove(a)}
+                  loading={deleting === m.id}
+                  disabled={deleting !== null && deleting !== m.id}
+                  onClick={() => remove(m)}
                 >
                   Delete
                 </Button>
               </li>
             ))}
           </ul>
-          {answers.length === max && (
+          {messages.length === max && (
             <div className="mt-4 flex justify-center">
-              <Button size="sm" variant="light" onClick={() => setMax((n) => n + ANSWERS_PAGE)}>
-                Show more
+              <Button size="sm" variant="light" onClick={() => setMax((n) => n + MESSAGES_PAGE)}>
+                Show older messages
               </Button>
             </div>
           )}
