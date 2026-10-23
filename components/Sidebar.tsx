@@ -9,6 +9,7 @@ import {
   Bell,
   CalendarDays,
   ChartColumn,
+  ClipboardList,
   Flag,
   FolderTree,
   GalleryHorizontalEnd,
@@ -62,6 +63,8 @@ export const menuSections: MenuSection[] = [
       { name: "Category", path: "/dashboard/category", icon: FolderTree, adminOnly: true },
       { name: "Sub Category", path: "/dashboard/sub-category", icon: Layers, adminOnly: true },
       { name: "Listings", path: "/dashboard/listings", icon: Store, adminOnly: true },
+      // Listings suggested from the app's "+" button; approving writes Products.
+      { name: "Listing Requests", path: "/dashboard/listing-requests", icon: ClipboardList, adminOnly: true },
       { name: "Recommended", path: "/dashboard/recommended", icon: Star, adminOnly: true },
       { name: "Display Order", path: "/dashboard/display-order", icon: ListOrdered, adminOnly: true },
     ],

@@ -2,18 +2,15 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { MapPin, Plus, Store } from "lucide-react";
+import { Clock, MapPin, Plus, Store } from "lucide-react";
 import {
   collection,
   getDocs,
   doc,
   updateDoc,
   setDoc,
-  query,
-  where,
   serverTimestamp,
   Timestamp,
-  type DocumentReference,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -24,9 +21,24 @@ import {
   deleteStorageFileByUrl,
   nextOrder,
   sortByOrder,
-  writeSequence,
 } from "@/lib/adminData";
-import { listingGroupKey, nextRecommendedOrder } from "@/lib/products";
+import {
+  compactListingGroup,
+  fetchListingGroup,
+  listingGroupKey,
+  listingImages,
+  listingPayload,
+  MAX_LISTING_IMAGES,
+  nextRecommendedOrder,
+} from "@/lib/products";
+import {
+  hasHours,
+  parseOpeningHours,
+  summary,
+  type OpeningHours,
+} from "@/lib/openingHours";
+import OpeningHoursEditor from "@/components/OpeningHoursEditor";
+import PhotoGrid, { type Photo } from "@/components/PhotoGrid";
 import {
   Alert,
   Badge,
@@ -65,7 +77,9 @@ type Listing = {
   locationUrl: string;
   about: string;
   shortDescription: string;
+  /* Free text; the hours summary when `openingHours` is set. */
   time: string;
+  openingHours: OpeningHours;
   startTimeString: string;
   endTimeString: string;
   startTime: Date | null;
@@ -74,9 +88,12 @@ type Listing = {
   email: string;
   websiteUrl: string;
   facebookUrl: string;
-  /* Raw stored URLs; the app reads `image` first and falls back to `imageUrl`. */
+  /* Raw stored URLs; the app reads `image` first and falls back to `imageUrl`.
+   * Newer builds read `images`, cover first. */
   imageField: string;
   imageUrlField: string;
+  images: string[];
+  /* The cover, `images[0]`. */
   image: string;
   order: number | null;
   recommended: boolean;
@@ -94,7 +111,7 @@ type ListingForm = {
   locationUrl: string;
   about: string;
   shortDescription: string;
-  time: string;
+  openingHours: OpeningHours;
   startTimeString: string;
   endTimeString: string;
   startTime: string;
@@ -114,7 +131,7 @@ const EMPTY_FORM: ListingForm = {
   locationUrl: "",
   about: "",
   shortDescription: "",
-  time: "",
+  openingHours: {},
   startTimeString: "",
   endTimeString: "",
   startTime: "",
@@ -142,6 +159,16 @@ const toLocalInput = (date: Date | null) => {
 
 const fromLocalInput = (value: string) => (value ? Timestamp.fromDate(new Date(value)) : null);
 
+/* Every Storage file a listing's doc points at. */
+const storedImageUrls = (l: Listing) =>
+  [...new Set([...l.images, l.imageField, l.imageUrlField])].filter(Boolean);
+
+/* The hours line shown in the list: the weekly summary, else the old text. */
+const hoursText = (l: Listing) => summary(l.openingHours) || l.time;
+
+let photoSeq = 0;
+const newPhotoId = () => `photo-${++photoSeq}`;
+
 export default function Page() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -152,8 +179,10 @@ export default function Page() {
   const [deleting, setDeleting] = useState<Listing | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
 
-  const [file, setFile] = useState<File | null>(null);
-  const [removeExistingImage, setRemoveExistingImage] = useState(false);
+  /* The form's photos in order, cover first: saved ones and newly picked. */
+  const [photos, setPhotos] = useState<Photo[]>([]);
+  /* Keep an old listing's free-text hours when no weekly hours are set. */
+  const [keepLegacyTime, setKeepLegacyTime] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -259,6 +288,7 @@ export default function Page() {
         const catId = subParent.get(subId) || storedCatId;
         const imageField = typeof x.image === "string" ? x.image : "";
         const imageUrlField = typeof x.imageUrl === "string" ? x.imageUrl : "";
+        const images = listingImages(x);
 
         return {
           id: d.id,
@@ -272,6 +302,7 @@ export default function Page() {
           about: x.about || "",
           shortDescription: x.shortDescription || "",
           time: x.time || "",
+          openingHours: parseOpeningHours(x.openingHours),
           startTimeString: x.startTimeString || "",
           endTimeString: x.endTimeString || "",
           startTime: toDate(x.startTime),
@@ -282,7 +313,8 @@ export default function Page() {
           facebookUrl: x.facebookUrl || "",
           imageField,
           imageUrlField,
-          image: imageField || imageUrlField,
+          images,
+          image: images[0] ?? "",
           order: asOrder(x.order),
           recommended: x.recommended === true,
           recommendedOrder: asOrder(x.recommendedOrder),
@@ -341,16 +373,16 @@ export default function Page() {
     setAdding(false);
     setEditing(null);
     setForm(EMPTY_FORM);
-    setFile(null);
-    setRemoveExistingImage(false);
+    setPhotos([]);
+    setKeepLegacyTime(true);
     setSaving(false);
     setError("");
   };
 
   const openAddModal = () => {
     setForm(EMPTY_FORM);
-    setFile(null);
-    setRemoveExistingImage(false);
+    setPhotos([]);
+    setKeepLegacyTime(true);
     setAdding(true);
     setEditing(null);
     setError("");
@@ -359,8 +391,8 @@ export default function Page() {
   const openEditModal = (listing: Listing) => {
     setEditing(listing);
     setAdding(false);
-    setFile(null);
-    setRemoveExistingImage(false);
+    setPhotos(listing.images.map((url) => ({ id: newPhotoId(), url, file: null })));
+    setKeepLegacyTime(true);
     setForm({
       title: listing.title,
       categoryId: listing.categoryId,
@@ -369,7 +401,7 @@ export default function Page() {
       locationUrl: listing.locationUrl,
       about: listing.about,
       shortDescription: listing.shortDescription,
-      time: listing.time,
+      openingHours: listing.openingHours,
       startTimeString: listing.startTimeString,
       endTimeString: listing.endTimeString,
       startTime: toLocalInput(listing.startTime),
@@ -389,96 +421,47 @@ export default function Page() {
       return "Please select a sub category. This category has sub categories, so the app only lists listings inside one.";
     }
     if (!form.title.trim()) return "Title is required.";
-    if (adding && !file) return "Image is required.";
-    if (editing && removeExistingImage && !file) return "Image is required.";
+    if (photos.length === 0) return "Add at least one photo.";
     if (form.startTime && form.lastTime && new Date(form.lastTime) < new Date(form.startTime)) {
       return "End date/time must be after the start date/time.";
     }
     return "";
   };
 
-  const uploadImage = async () => {
-    if (!file) return "";
-    const storageRef = ref(storage, `listings/${Date.now()}-${file.name}`);
-    await uploadBytes(storageRef, file);
-    return await getDownloadURL(storageRef);
-  };
+  /* Free text an older listing was saved with, before weekly hours. */
+  const legacyTime = editing && !hasHours(editing.openingHours) ? editing.time.trim() : "";
 
-  const deleteListingImages = async (listing: Listing) => {
-    await deleteStorageFileByUrl(listing.imageField);
-    if (listing.imageUrlField && listing.imageUrlField !== listing.imageField) {
-      await deleteStorageFileByUrl(listing.imageUrlField);
-    }
-  };
-
-  /* Current members of a listing's order group, read fresh from Firestore so
-   * two admins adding listings at once don't both take the same slot. */
-  const fetchGroup = async (categoryId: string, subCategoryId: string) => {
-    const snap = subCategoryId
-      ? await getDocs(
-          query(
-            collection(db, "Products"),
-            where("subCatagoryRef", "==", doc(db, "SubCatagories", subCategoryId)),
-          ),
-        )
-      : await getDocs(
-          query(
-            collection(db, "Products"),
-            where("catagoryRef", "==", doc(db, "Catagories", categoryId)),
-          ),
-        );
-    return snap.docs
-      .filter((d) => subCategoryId || !d.data().subCatagoryRef)
-      .map((d) => ({ id: d.id, order: asOrder(d.data().order) }));
-  };
-
-  /* Re-number a group 0..n-1 after a listing leaves it. */
-  const compactGroup = async (categoryId: string, subCategoryId: string, leavingId: string) => {
-    if (!categoryId && !subCategoryId) return;
-    const members = sortByOrder(
-      (await fetchGroup(categoryId, subCategoryId)).filter((m) => m.id !== leavingId),
-      (m) => m.order,
+  /* Uploads the newly picked photos and returns every photo's URL in order. */
+  const uploadPhotos = () =>
+    Promise.all(
+      photos.map(async (p) => {
+        if (!p.file) return p.url;
+        const storageRef = ref(storage, `listings/${Date.now()}-${p.id}-${p.file.name}`);
+        await uploadBytes(storageRef, p.file);
+        return getDownloadURL(storageRef);
+      }),
     );
-    await writeSequence("Products", members.map((m) => m.id));
-  };
 
-  /* Every field the mobile app reads, with the exact type it casts to. */
+  const deleteImageFiles = (urls: string[]) =>
+    Promise.all(urls.map((url) => deleteStorageFileByUrl(url)));
+
   const buildPayload = (
-    imageUrl: string,
+    images: string[],
     order: number,
     recommendedOrder: number | null,
-  ) => {
-    const catRef: DocumentReference = doc(db, "Catagories", form.categoryId);
-    const subRef: DocumentReference | null = form.subCategoryId
-      ? doc(db, "SubCatagories", form.subCategoryId)
-      : null;
-    const phone = form.phone.trim();
-
-    return {
-      productName: form.title.trim(),
-      shortDescription: form.shortDescription.trim(),
-      about: form.about.trim(),
-      productLocation: form.location.trim(),
-      locationUrl: form.locationUrl.trim(),
-      image: imageUrl,
-      imageUrl,
-      phone_number: phone,
-      contactInfo: phone,
-      email: form.email.trim(),
-      websiteUrl: form.websiteUrl.trim(),
-      facebookUrl: form.facebookUrl.trim(),
-      time: form.time.trim(),
-      startTimeString: form.startTimeString.trim(),
-      endTimeString: form.endTimeString.trim(),
-      startTime: fromLocalInput(form.startTime),
-      lastTime: fromLocalInput(form.lastTime),
-      catagoryRef: catRef,
-      subCatagoryRef: subRef,
+  ) =>
+    listingPayload(
+      {
+        ...form,
+        // Replaced by the hours summary when weekly hours are set.
+        time: legacyTime && keepLegacyTime ? legacyTime : "",
+        startTime: fromLocalInput(form.startTime),
+        lastTime: fromLocalInput(form.lastTime),
+      },
+      images,
       order,
-      recommended: form.recommended,
-      ...(recommendedOrder !== null ? { recommendedOrder } : {}),
-    };
-  };
+      recommendedOrder,
+    );
 
   /* ADD */
   const handleAdd = async () => {
@@ -493,14 +476,14 @@ export default function Page() {
       setError("");
 
       const newDocRef = doc(collection(db, "Products"));
-      const [imageUrl, group, recommendedOrder] = await Promise.all([
-        uploadImage(),
-        fetchGroup(form.categoryId, form.subCategoryId),
+      const [images, group, recommendedOrder] = await Promise.all([
+        uploadPhotos(),
+        fetchListingGroup(form.categoryId, form.subCategoryId),
         form.recommended ? nextRecommendedOrder() : Promise.resolve(null),
       ]);
 
       await setDoc(newDocRef, {
-        ...buildPayload(imageUrl, nextOrder(group.map((g) => g.order)), recommendedOrder),
+        ...buildPayload(images, nextOrder(group.map((g) => g.order)), recommendedOrder),
         created_time: serverTimestamp(),
         productRef: newDocRef,
       });
@@ -530,14 +513,7 @@ export default function Page() {
       setSaving(true);
       setError("");
 
-      let nextImageUrl = editing.image;
-      if (file) {
-        await deleteListingImages(editing);
-        nextImageUrl = await uploadImage();
-      } else if (removeExistingImage) {
-        await deleteListingImages(editing);
-        nextImageUrl = "";
-      }
+      const images = await uploadPhotos();
 
       const oldGroup = listingGroupKey(editing.categoryId, editing.subCategoryId);
       const newGroup = listingGroupKey(form.categoryId, form.subCategoryId);
@@ -547,7 +523,7 @@ export default function Page() {
       // keeps the current position (or takes the next slot if it had none).
       let order = editing.order;
       if (movedGroup || order === null) {
-        const group = await fetchGroup(form.categoryId, form.subCategoryId);
+        const group = await fetchListingGroup(form.categoryId, form.subCategoryId);
         order = nextOrder(group.filter((g) => g.id !== editing.id).map((g) => g.order));
       }
 
@@ -558,11 +534,14 @@ export default function Page() {
 
       await updateDoc(
         doc(db, "Products", editing.id),
-        buildPayload(nextImageUrl, order, recommendedOrder),
+        buildPayload(images, order, recommendedOrder),
       );
 
+      // Photos removed in the form go once the doc no longer points at them.
+      await deleteImageFiles(storedImageUrls(editing).filter((url) => !images.includes(url)));
+
       if (movedGroup) {
-        await compactGroup(editing.categoryId, editing.subCategoryId, editing.id);
+        await compactListingGroup(editing.categoryId, editing.subCategoryId, editing.id);
       }
 
       await fetchData();
@@ -613,8 +592,8 @@ export default function Page() {
     try {
       setDeletingBusy(true);
       await deleteDocDeep(doc(db, "Products", deleting.id), { Reviews: [] });
-      await deleteListingImages(deleting);
-      await compactGroup(deleting.categoryId, deleting.subCategoryId, deleting.id);
+      await deleteImageFiles(storedImageUrls(deleting));
+      await compactListingGroup(deleting.categoryId, deleting.subCategoryId, deleting.id);
 
       setDeleting(null);
       await fetchData();
@@ -626,22 +605,6 @@ export default function Page() {
       setDeletingBusy(false);
     }
   };
-
-  const currentImagePreview = useMemo(
-    () =>
-      file
-        ? URL.createObjectURL(file)
-        : editing && !removeExistingImage
-          ? editing.image
-          : "",
-    [file, editing, removeExistingImage],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (currentImagePreview.startsWith("blob:")) URL.revokeObjectURL(currentImagePreview);
-    };
-  }, [currentImagePreview]);
 
   const setField = <K extends keyof ListingForm>(key: K, value: ListingForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -723,7 +686,7 @@ export default function Page() {
           <table className={`${table.table} min-w-[760px]`}>
             <thead className={table.thead}>
               <tr>
-                <th className={table.th}>Image</th>
+                <th className={table.th}>Photos</th>
                 <th className={table.th}>Title</th>
                 <th className={table.th}>Address</th>
                 <th className={table.th}>Position</th>
@@ -758,22 +721,41 @@ export default function Page() {
 
                     <tr className={table.row}>
                       <td className={table.td}>
-                        {l.image ? (
-                          <img
-                            src={l.image}
-                            alt=""
-                            loading="eager"
-                            className={table.thumb}
-                          />
-                        ) : (
-                          <div className={table.thumbEmpty}>No Img</div>
-                        )}
+                        <div
+                          className="relative w-9"
+                          title={`${l.images.length} ${l.images.length === 1 ? "photo" : "photos"}`}
+                        >
+                          {l.image ? (
+                            <img
+                              src={l.image}
+                              alt=""
+                              loading="eager"
+                              className={table.thumb}
+                            />
+                          ) : (
+                            <div className={table.thumbEmpty}>No Img</div>
+                          )}
+                          {l.images.length > 1 && (
+                            <span className="absolute -right-1.5 -bottom-1 rounded-full bg-black/75 px-1.5 text-[9px] leading-4 font-semibold text-white tabular-nums">
+                              {l.images.length}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       <td className={table.td}>
-                        <p className="max-w-[260px] truncate font-semibold" title={l.title || undefined}>
+                        <p className="max-w-[300px] truncate font-semibold" title={l.title || undefined}>
                           {l.title || "Untitled listing"}
                         </p>
+                        {hoursText(l) && (
+                          <p
+                            className="flex max-w-[300px] items-center gap-1 text-[11px] text-black/55"
+                            title={hoursText(l)}
+                          >
+                            <Clock className="h-3 w-3 shrink-0 text-black/35" aria-hidden />
+                            <span className="truncate">{hoursText(l)}</span>
+                          </p>
+                        )}
                         {l.staleCategory && (
                           <Badge
                             tone="amber"
@@ -852,6 +834,11 @@ export default function Page() {
       {(adding || editing) && (
         <Modal
           title={adding ? "Add New Listing" : "Edit Listing"}
+          description={
+            editing
+              ? [editing.category, editing.subCategory].filter(Boolean).join(" › ") || undefined
+              : "Fill in what the app shows on the listing's card and detail page."
+          }
           onClose={closeModal}
           footer={
             <>
@@ -876,45 +863,66 @@ export default function Page() {
             </Alert>
           )}
 
-          <FormSection>Where it appears</FormSection>
+          <FormSection>Placement</FormSection>
 
-          <Select
-            label="Category"
-            value={form.categoryId}
-            onChange={(v: string) =>
-              setForm((prev) => ({ ...prev, categoryId: v, subCategoryId: "" }))
-            }
-            options={categories}
-            placeholder="Please select a category"
-          />
+          <div className="grid gap-x-4 sm:grid-cols-2">
+            <Select
+              label="Category"
+              value={form.categoryId}
+              onChange={(v: string) =>
+                setForm((prev) => ({ ...prev, categoryId: v, subCategoryId: "" }))
+              }
+              options={categories}
+              placeholder="Please select a category"
+            />
 
-          <Select
-            label="Sub Category"
-            value={form.subCategoryId}
-            onChange={(v: string) => setField("subCategoryId", v)}
-            options={filteredSubs}
-            disabled={!form.categoryId || !categoryHasSubs}
-            hint={
-              adding && form.categoryId
-                ? `New listings are added at the end of the ${
-                    categoryHasSubs ? "sub category" : "category"
-                  }. Reorder them in Display Order.`
-                : undefined
-            }
-            placeholder={
-              !form.categoryId
-                ? "Select a category first"
-                : categoryHasSubs
-                  ? "Please select a sub category"
-                  : "This category has no sub categories"
-            }
-          />
+            <Select
+              label="Sub Category"
+              value={form.subCategoryId}
+              onChange={(v: string) => setField("subCategoryId", v)}
+              options={filteredSubs}
+              disabled={!form.categoryId || !categoryHasSubs}
+              placeholder={
+                !form.categoryId
+                  ? "Select a category first"
+                  : categoryHasSubs
+                    ? "Please select a sub category"
+                    : "This category has no sub categories"
+              }
+            />
+          </div>
+          {adding && form.categoryId && (
+            <p className="mt-1 text-xs text-black/55">
+              New listings are added at the end of the{" "}
+              {categoryHasSubs ? "sub category" : "category"}. Reorder them in Display Order.
+            </p>
+          )}
 
-          <SwitchRow
-            title="Show in Recommended"
-            description="Adds this listing to the end of the app’s Recommended row."
-            checked={form.recommended}
-            onChange={(checked) => setField("recommended", checked)}
+          <FormSection>Photos</FormSection>
+          <p className="mt-2 text-xs text-black/55">
+            Up to {MAX_LISTING_IMAGES}. The first photo is the cover on cards; drag a photo or use
+            its arrows to reorder.
+          </p>
+
+          <PhotoGrid
+            photos={photos}
+            max={MAX_LISTING_IMAGES}
+            onChange={setPhotos}
+            onAddFiles={(files) => {
+              const room = MAX_LISTING_IMAGES - photos.length;
+              const picked = files.filter((f) => f.type.startsWith("image/"));
+              setPhotos((prev) => [
+                ...prev,
+                ...picked.slice(0, room).map((f) => ({ id: newPhotoId(), url: "", file: f })),
+              ]);
+              setError(
+                picked.length > room
+                  ? `A listing holds ${MAX_LISTING_IMAGES} photos, so ${picked.length - room} of the chosen ${
+                      picked.length - room === 1 ? "photo was" : "photos were"
+                    } left out.`
+                  : "",
+              );
+            }}
           />
 
           <FormSection>Details</FormSection>
@@ -933,13 +941,6 @@ export default function Page() {
             hint="Shown on the listing's detail page."
             value={form.about}
             onChange={(v) => setField("about", v)}
-          />
-
-          <Input
-            label="Hours / Time"
-            hint='Free text, e.g. "Mon–Fri 9am–5pm".'
-            value={form.time}
-            onChange={(v) => setField("time", v)}
           />
 
           <FormSection>Location & contact</FormSection>
@@ -961,19 +962,50 @@ export default function Page() {
               value={form.email}
               onChange={(v) => setField("email", v)}
             />
+            <Input
+              label="Website URL"
+              value={form.websiteUrl}
+              onChange={(v) => setField("websiteUrl", v)}
+            />
+            <Input
+              label="Facebook URL"
+              value={form.facebookUrl}
+              onChange={(v) => setField("facebookUrl", v)}
+            />
           </div>
 
-          <Input
-            label="Website URL"
-            value={form.websiteUrl}
-            onChange={(v) => setField("websiteUrl", v)}
-          />
+          <FormSection>Opening hours</FormSection>
 
-          <Input
-            label="Facebook URL"
-            value={form.facebookUrl}
-            onChange={(v) => setField("facebookUrl", v)}
+          {legacyTime && (
+            <Alert tone="warning" surface="light" className="mt-4">
+              <p>
+                Current text: <span className="font-semibold">&ldquo;{legacyTime}&rdquo;</span>
+              </p>
+              {hasHours(form.openingHours) ? (
+                <p className="mt-1 text-xs">Replaced by the weekly hours below when you save.</p>
+              ) : (
+                <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    className="accent-[#ff7a59]"
+                    checked={keepLegacyTime}
+                    onChange={(e) => setKeepLegacyTime(e.target.checked)}
+                  />
+                  Keep this text as the listing&rsquo;s hours until weekly hours are set
+                </label>
+              )}
+            </Alert>
+          )}
+
+          <OpeningHoursEditor
+            value={form.openingHours}
+            onChange={(next) => setField("openingHours", next)}
           />
+          {hasHours(form.openingHours) && (
+            <p className="mt-2 text-xs text-black/55">
+              Shown in the app as: <span className="font-medium text-black/75">{summary(form.openingHours)}</span>
+            </p>
+          )}
 
           <FormSection>Event time (optional)</FormSection>
           <p className="mt-2 text-xs text-black/55">
@@ -1007,54 +1039,14 @@ export default function Page() {
             />
           </div>
 
-          <FormSection>Image</FormSection>
+          <FormSection>Visibility</FormSection>
 
-          <div className="mt-4 flex flex-col items-center gap-4 rounded-2xl border border-black/10 bg-white/50 px-4 py-5">
-            {currentImagePreview ? (
-              <img
-                src={currentImagePreview}
-                alt="Listing preview"
-                className="h-32 w-32 rounded-2xl border border-black/10 object-cover shadow-sm"
-              />
-            ) : (
-              <div className="flex h-32 w-32 items-center justify-center rounded-2xl border border-dashed border-black/20 bg-black/5 text-sm text-black/40">
-                No image
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <label className="inline-flex cursor-pointer items-center rounded-xl border border-[#ff7a59] px-4 py-2 text-sm font-medium text-[#ff7a59] transition hover:bg-[#ff7a59] hover:text-white">
-                {editing ? "Change Image" : "Upload Image"}
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  onChange={(e) => {
-                    setRemoveExistingImage(false);
-                    setFile(e.target.files?.[0] || null);
-                  }}
-                />
-              </label>
-
-              {(file || editing?.image) && (
-                <Button
-                  variant="danger"
-                  onClick={() => {
-                    setFile(null);
-                    if (editing?.image) {
-                      setRemoveExistingImage(true);
-                    }
-                  }}
-                >
-                  Remove Image
-                </Button>
-              )}
-            </div>
-
-            {editing && removeExistingImage && !file && (
-              <p className="text-sm text-red-600">Existing image will be removed when you save.</p>
-            )}
-          </div>
+          <SwitchRow
+            title="Show in Recommended"
+            description="Adds this listing to the end of the app’s Recommended row."
+            checked={form.recommended}
+            onChange={(checked) => setField("recommended", checked)}
+          />
         </Modal>
       )}
 
@@ -1079,7 +1071,7 @@ export default function Page() {
             Delete <span className="font-semibold">{deleting.title}</span>?
           </p>
           <p className="mt-2 text-sm text-black/60">
-            The listing, its reviews and its image are removed from the app. This can&rsquo;t be
+            The listing, its reviews and its photos are removed from the app. This can&rsquo;t be
             undone.
           </p>
         </Modal>
