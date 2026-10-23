@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CalendarDays,
@@ -965,6 +965,7 @@ function ChatModal({
 
   return (
     <Modal
+      size="xl"
       title={`Chat · ${dayLabel(day)}`}
       description={
         question ||
@@ -1008,37 +1009,151 @@ function ChatModal({
           No messages for this day.
         </div>
       ) : (
-        <>
-          <p className="mb-2 text-xs text-black/50">Newest first.</p>
-          <ul className="space-y-2">
-            {messages.map((m) => (
-              <li
-                key={m.id}
-                className={cx(
-                  "flex items-start gap-3 rounded-xl border px-3 py-2.5 text-sm",
-                  m.isAnswer ? "border-emerald-300 bg-emerald-50" : "border-black/5 bg-[#f5ecd7]",
-                )}
-              >
-                {m.userPhoto ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={m.userPhoto}
-                    alt=""
-                    className="h-9 w-9 shrink-0 rounded-full border border-black/10 object-cover"
-                  />
-                ) : (
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black/10 text-xs font-semibold text-black/50">
-                    {(m.userName || "?").charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="font-semibold">{m.userName || "Unknown"}</span>
-                    {m.isAnswer && <Badge tone="green">Answer</Badge>}
-                    <span className="text-xs text-black/45">{formatDate(m.createdAt)}</span>
-                  </p>
+        <ChatTimeline
+          messages={messages}
+          shownQuestion={shownQuestion}
+          hasOlder={messages.length === max}
+          onOlder={() => setMax((n) => n + MESSAGES_PAGE)}
+          deleting={deleting}
+          onDelete={remove}
+        />
+      )}
+    </Modal>
+  );
+}
+
+/* Messages from one person this close together are drawn as one run. */
+const RUN_GAP_MS = 5 * 60 * 1000;
+
+const sameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+
+const chatDay = (d: Date) => {
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (sameDay(d, today)) return "Today";
+  if (sameDay(d, yesterday)) return "Yesterday";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+};
+
+const clock = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+/*
+ * The day's chat as the app shows it: oldest at the top, scrolled to the
+ * latest, one sender's messages grouped with their photo and name, day
+ * separators, answers tagged. Delete appears on hover.
+ */
+function ChatTimeline({
+  messages,
+  shownQuestion,
+  hasOlder,
+  onOlder,
+  deleting,
+  onDelete,
+}: {
+  /* Newest first, as loaded. */
+  messages: Message[];
+  shownQuestion: string;
+  hasOlder: boolean;
+  onOlder: () => void;
+  deleting: string | null;
+  onDelete: (m: Message) => void;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+  const lastNewest = useRef<string | null>(null);
+  const ordered = useMemo(() => [...messages].reverse(), [messages]);
+
+  // Start at the bottom, and follow new messages while the admin is there.
+  // Loading older ones keeps the view where it was.
+  const prevHeight = useRef(0);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const newest = messages[0]?.id ?? null;
+    if (newest !== lastNewest.current && pinned.current) {
+      el.scrollTop = el.scrollHeight;
+    } else if (newest === lastNewest.current && prevHeight.current) {
+      el.scrollTop += el.scrollHeight - prevHeight.current;
+    }
+    lastNewest.current = newest;
+    prevHeight.current = el.scrollHeight;
+  }, [messages]);
+
+  const at = (m: Message) => m.createdAt ?? new Date();
+  const run = (a: Message | undefined, b: Message | undefined) =>
+    !!a &&
+    !!b &&
+    a.uid === b.uid &&
+    sameDay(at(a), at(b)) &&
+    Math.abs(at(a).getTime() - at(b).getTime()) <= RUN_GAP_MS;
+
+  return (
+    <div
+      ref={scroller}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+      }}
+      className="max-h-[60vh] overflow-y-auto rounded-2xl bg-white px-3 py-3 sm:px-4"
+    >
+      {hasOlder && (
+        <div className="mb-3 flex justify-center">
+          <Button size="sm" variant="light" onClick={onOlder}>
+            Show older messages
+          </Button>
+        </div>
+      )}
+      {ordered.map((m, i) => {
+        const older = ordered[i - 1];
+        const newer = ordered[i + 1];
+        const showDay = !older || !sameDay(at(older), at(m));
+        const first = showDay || !run(older, m);
+        const last = !run(m, newer);
+        const name = m.userName || "Unknown";
+        return (
+          <div key={m.id}>
+            {showDay && (
+              <div className="my-3 flex justify-center">
+                <span className="rounded-full bg-black/5 px-3 py-1 text-xs font-semibold text-black/55">
+                  {chatDay(at(m))}
+                </span>
+              </div>
+            )}
+            <div className={cx("group flex items-end gap-2", first ? "mt-3" : "mt-0.5")}>
+              <div className="w-8 shrink-0">
+                {last &&
+                  (m.userPhoto ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={m.userPhoto}
+                      alt=""
+                      className="h-8 w-8 rounded-full border border-black/10 object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                      {name.charAt(0).toUpperCase()}
+                    </div>
+                  ))}
+              </div>
+              <div className="flex min-w-0 max-w-[75%] flex-col items-start">
+                {first && <span className="mb-0.5 ml-1 text-xs font-semibold text-black/50">{name}</span>}
+                <div
+                  className={cx(
+                    "rounded-[20px] px-3.5 py-2 text-sm text-black/85",
+                    last ? "rounded-bl-[6px]" : "",
+                    !first ? "rounded-tl-[6px]" : "",
+                    m.isAnswer ? "border border-emerald-200 bg-emerald-50" : "bg-[#f1f1f4]",
+                  )}
+                >
+                  {m.isAnswer && (
+                    <span className="mb-0.5 flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                      <MessageCircleQuestionMark className="h-3 w-3" aria-hidden />
+                      Answer
+                    </span>
+                  )}
                   {(m.replyToName || m.replyToText) && (
-                    <div className="mt-1 flex gap-1.5 border-l-2 border-black/20 pl-2 text-xs text-black/55">
+                    <div className="mb-1 flex gap-1.5 rounded-lg border-l-2 border-blue-400 bg-black/5 px-2 py-1 text-xs text-black/60">
                       <Reply className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
                       <span className="min-w-0 break-words">
                         <span className="font-semibold">{m.replyToName || "a message"}</span>
@@ -1046,35 +1161,34 @@ function ChatModal({
                       </span>
                     </div>
                   )}
-                  <p className="mt-0.5 break-words whitespace-pre-line text-black/80">{m.text}</p>
+                  <p className="break-words whitespace-pre-line">{m.text}</p>
                   {m.isAnswer && m.question && m.question !== shownQuestion && (
-                    <p className="mt-1 text-xs break-words text-black/45">
-                      Answered: “{m.question}”
-                    </p>
+                    <p className="mt-1 text-xs break-words text-black/45">Answered: “{m.question}”</p>
                   )}
                 </div>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  icon={Trash2}
-                  loading={deleting === m.id}
-                  disabled={deleting !== null && deleting !== m.id}
-                  onClick={() => remove(m)}
-                >
-                  Delete
-                </Button>
-              </li>
-            ))}
-          </ul>
-          {messages.length === max && (
-            <div className="mt-4 flex justify-center">
-              <Button size="sm" variant="light" onClick={() => setMax((n) => n + MESSAGES_PAGE)}>
-                Show older messages
-              </Button>
+                {last && (
+                  <span className="mt-0.5 ml-1 text-[11px] text-black/40" title={formatDate(m.createdAt)}>
+                    {m.createdAt ? clock(m.createdAt) : "Sending…"}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => onDelete(m)}
+                disabled={deleting !== null}
+                title={`Delete this ${m.isAnswer ? "answer" : "message"}`}
+                aria-label={`Delete ${m.isAnswer ? "answer" : "message"} from ${name}`}
+                className={cx(
+                  "mb-1 shrink-0 rounded-full p-1.5 text-red-500 transition hover:bg-red-50 focus:opacity-100",
+                  deleting === m.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                )}
+              >
+                {deleting === m.id ? <Spinner className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+              </button>
             </div>
-          )}
-        </>
-      )}
-    </Modal>
+          </div>
+        );
+      })}
+    </div>
   );
 }
