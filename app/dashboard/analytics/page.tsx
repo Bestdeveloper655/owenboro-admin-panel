@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  AlertTriangle,
-  ChartSpline,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
   Eye,
   IdCard,
+  Info,
   RefreshCw,
   Store,
   UserCheck,
@@ -27,22 +35,11 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebaseServices";
 import { listingImages } from "@/lib/products";
-import {
-  Alert,
-  Badge,
-  Button,
-  EmptyState,
-  LoadingState,
-  PageHeader,
-  SectionHeading,
-  Segmented,
-  cx,
-  table,
-} from "@/components/ui";
+import { Alert, Button, cx } from "@/components/ui";
 
 /*
- * Reports & Analytics (Oct 2026): what people do in the app, from the counts
- * the app's UsageTracker sends (theowensboroapp lib/core/analytics).
+ * Analytics (Oct 2026): what people do in the app, from the counts the app's
+ * UsageTracker sends (theowensboroapp lib/core/analytics).
  *
  *  - `analytics_daily/{day}/shards/{0..19}`: counter docs the app increments
  *    every few minutes ({pages, listings, buttons, events} maps). A day's total
@@ -51,9 +48,11 @@ import {
  *  - `analytics_daily/{day}`: the nightly rollup's summary of a FINISHED day.
  *
  * To stay cheap, today is read from its shards (≤20 docs) plus three count
- * queries; past days come from their summaries (one doc each), falling back to
- * shards + counts only for a few recent days the rollup hasn't reached yet.
- * Nothing is listened to in realtime; "Refresh" reads again.
+ * queries; past days come from their summaries (one doc each, cached for the
+ * session), falling back to shards + counts only for a few recent days of the
+ * selected range the rollup hasn't reached yet. The previous period (for the
+ * deltas) and the 14-day trend use summaries only. Nothing is listened to in
+ * realtime: Today re-reads itself every minute while visible.
  *
  * A day is the calendar date in America/Chicago, midnight to midnight.
  */
@@ -76,38 +75,77 @@ type DayStats = {
 };
 
 type RangeResult = {
+  /* The selected period: its days, and the ones with no data in it. */
+  span: string[];
   days: DayStats[];
   /* Past days in the range without a summary that weren't read live (cap). */
   missing: string[];
+  /* The equal period before it (summaries only), for the deltas. */
+  previous: DayStats[];
+  /* The days the chart shows: the range, or the last 14 days for one day. */
+  trend: string[];
+  trendStats: DayStats[];
   loadedAt: Date;
 };
 
 type ProductInfo = { name: string; image: string };
 
-const TZ = "America/Chicago";
-const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const SHARDS = "shards";
-/* Most unsummarized past days read from their shards in one load. */
-const FALLBACK_MAX = 7;
-/* Rows a table shows before "Show all"; also the listings whose names are fetched. */
-const TOP_ROWS = 15;
-/* Firestore's limit for `in` queries. */
-const IN_CHUNK = 30;
-
-const SERIES = {
-  active: "#0ea5e9",
-  accounts: "#0b9ad8",
+/* Days read for the session: summaries and live fallbacks, the days whose
+ * summary was looked for and missing, and which entries were read live (those
+ * are re-read on Refresh; summaries never change). */
+type DayCache = {
+  stats: Map<string, DayStats>;
+  checked: Set<string>;
+  live: Set<string>;
 };
 
-const RANGE_OPTIONS: Array<{ value: RangeKey; label: string }> = [
+const TZ = "America/Chicago";
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+/* Most unsummarized past days read from their shards in one load. */
+const FALLBACK_MAX = 7;
+/* Days in the chart for the Today and Yesterday views. */
+const TREND_DAYS = 14;
+/* Rows a list shows before "View all"; also the listings whose names are fetched. */
+const TOP_ROWS = 8;
+/* Firestore's limit for `in` queries. */
+const IN_CHUNK = 30;
+/* How often the Today view re-reads while open. */
+const AUTO_REFRESH_MS = 60_000;
+
+const ACCENT = "#38bdf8";
+const SURFACE = "#0d0d0d";
+
+const RANGE_OPTIONS: Array<{ value: RangeKey; label: ReactNode }> = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
+  {
+    value: "7d",
+    label: (
+      <>
+        <span className="hidden sm:inline">Last </span>7 days
+      </>
+    ),
+  },
+  {
+    value: "30d",
+    label: (
+      <>
+        <span className="hidden sm:inline">Last </span>30 days
+      </>
+    ),
+  },
 ];
+
+const VS_LABEL: Record<RangeKey, string> = {
+  today: "vs yesterday",
+  yesterday: "vs the day before",
+  "7d": "vs previous 7 days",
+  "30d": "vs previous 30 days",
+};
 
 const LAG_HINT =
   "Counts are collected in the app and sent every few minutes, so today's numbers can lag slightly.";
+const DAYS_HINT = "Days run midnight to midnight, Central time (Owensboro).";
 
 /* ------------------------------------------------------------------ DAYS */
 
@@ -157,10 +195,14 @@ function centralMidnight(day: string): Date {
   return new Date(wall - centralOffsetMs(guess));
 }
 
+/* `count` days ending with `last`, oldest first. */
+const daysEnding = (last: string, count: number) =>
+  Array.from({ length: count }, (_, i) => addDays(last, i - count + 1));
+
+/* The selected period. 7 and 30 days are full days ending yesterday. */
 function rangeDays(range: RangeKey, today: string): string[] {
-  const count = range === "today" ? 1 : range === "yesterday" ? 1 : range === "7d" ? 7 : 30;
-  const last = range === "today" ? today : addDays(today, -1);
-  return Array.from({ length: count }, (_, i) => addDays(last, i - count + 1));
+  if (range === "today") return [today];
+  return daysEnding(addDays(today, -1), range === "yesterday" ? 1 : range === "7d" ? 7 : 30);
 }
 
 const dayDate = (id: string) => new Date(`${id}T12:00:00Z`);
@@ -174,8 +216,8 @@ const dayLabel = (id: string, weekday = false) =>
     day: "numeric",
   });
 
-const timeLabel = (d: Date) =>
-  d.toLocaleTimeString("en-US", { timeZone: TZ, hour: "numeric", minute: "2-digit" });
+/* In the admin's own time zone. */
+const localTime = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 
 /* ----------------------------------------------------------------- LABELS */
 
@@ -292,7 +334,7 @@ async function loadLiveDay(day: string): Promise<DayStats> {
   const dayRef = doc(db, "analytics_daily", day);
   const active = collection(dayRef, "active");
   const [shards, activeUsers, activeSignedIn, newAccounts] = await Promise.all([
-    getDocs(collection(dayRef, SHARDS)),
+    getDocs(collection(dayRef, "shards")),
     count(active, `active users on ${day}`),
     count(query(active, where("signedIn", "==", true)), `signed-in users on ${day}`),
     count(
@@ -326,42 +368,81 @@ async function loadLiveDay(day: string): Promise<DayStats> {
   return stats;
 }
 
-/* Past days kept for the session (summaries don't change; "Refresh" clears
- * the days of the range it reloads). */
+/* Reads the summaries of the `days` not looked up yet: one query per run of
+ * consecutive days, so days already cached in between aren't read again. */
+async function ensureSummaries(days: string[], cache: DayCache) {
+  const need = [...new Set(days)].filter((d) => !cache.stats.has(d) && !cache.checked.has(d)).sort();
+  if (need.length === 0) return;
+  const runs: string[][] = [];
+  for (const d of need) {
+    const run = runs[runs.length - 1];
+    if (run && addDays(run[run.length - 1], 1) === d) run.push(d);
+    else runs.push([d]);
+  }
+  const snaps = await Promise.all(
+    runs.map((run) =>
+      getDocs(
+        query(
+          collection(db, "analytics_daily"),
+          where(documentId(), ">=", run[0]),
+          where(documentId(), "<=", run[run.length - 1]),
+        ),
+      ),
+    ),
+  );
+  for (const snap of snaps) {
+    for (const d of snap.docs) {
+      if (DAY_RE.test(d.id)) cache.stats.set(d.id, readSummary(d.id, d.data()));
+    }
+  }
+  need.forEach((d) => cache.checked.add(d));
+}
+
+/* `mode`: "initial" reads what isn't cached; "live" re-reads only today
+ * (the auto-refresh); "manual" (Refresh) also looks again for summaries that
+ * were missing and re-reads the days that were read live. */
 async function loadRange(
   range: RangeKey,
   today: string,
-  cache: Map<string, DayStats>,
-  fresh: boolean,
+  cache: DayCache,
+  mode: "initial" | "live" | "manual",
 ): Promise<RangeResult> {
-  if (range === "today") {
-    return { days: [await loadLiveDay(today)], missing: [], loadedAt: new Date() };
-  }
+  const span = rangeDays(range, today);
+  const prevSpan = span.map((d) => addDays(d, -span.length));
+  const trend = span.length === 1 ? daysEnding(span[0], TREND_DAYS) : span;
+  const past = [...span, ...prevSpan, ...trend].filter((d) => d < today);
 
-  const days = rangeDays(range, today);
-  if (fresh) days.forEach((d) => cache.delete(d));
-  const need = days.filter((d) => !cache.has(d));
-
-  if (need.length > 0) {
-    const snap = await getDocs(
-      query(
-        collection(db, "analytics_daily"),
-        where(documentId(), ">=", need[0]),
-        where(documentId(), "<=", need[need.length - 1]),
-      ),
-    );
-    for (const d of snap.docs) {
-      if (DAY_RE.test(d.id) && need.includes(d.id)) cache.set(d.id, readSummary(d.id, d.data()));
+  if (mode === "manual") {
+    for (const d of past) {
+      cache.checked.delete(d);
+      if (cache.live.has(d)) {
+        cache.stats.delete(d);
+        cache.live.delete(d);
+      }
     }
-    // Days the rollup hasn't reached: the most recent few, read live.
-    const unsummarized = need.filter((d) => !cache.has(d)).reverse();
-    const live = await Promise.all(unsummarized.slice(0, FALLBACK_MAX).map(loadLiveDay));
-    for (const d of live) cache.set(d.day, d);
   }
 
+  const [todayStats] = await Promise.all([
+    range === "today" ? loadLiveDay(today) : null,
+    ensureSummaries(past, cache),
+  ]);
+
+  // Days of the selected range the rollup hasn't reached: the most recent few, read live.
+  const unsummarized = span.filter((d) => d < today && !cache.stats.has(d)).reverse();
+  const live = await Promise.all(unsummarized.slice(0, FALLBACK_MAX).map(loadLiveDay));
+  for (const d of live) {
+    cache.stats.set(d.day, d);
+    cache.live.add(d.day);
+  }
+
+  const get = (d: string) => (d === today ? todayStats : cache.stats.get(d)) ?? [];
   return {
-    days: days.flatMap((d) => cache.get(d) ?? []),
-    missing: days.filter((d) => !cache.has(d)),
+    span,
+    days: span.flatMap(get),
+    missing: span.filter((d) => d < today && !cache.stats.has(d)),
+    previous: prevSpan.flatMap(get),
+    trend,
+    trendStats: trend.flatMap(get),
     loadedAt: new Date(),
   };
 }
@@ -402,6 +483,7 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 const fmtAvg = (n: number) =>
   n.toLocaleString("en-US", { maximumFractionDigits: n < 10 ? 1 : 0 });
 const plural = (n: number, one: string, many = `${one}s`) => `${fmt(n)} ${n === 1 ? one : many}`;
+const pctLabel = (p: number) => (p > 0 && p < 1 ? "<1%" : `${Math.round(p)}%`);
 
 function without<T>(map: Record<string, T>, key: string): Record<string, T> {
   const next = { ...map };
@@ -409,12 +491,36 @@ function without<T>(map: Record<string, T>, key: string): Record<string, T> {
   return next;
 }
 
+/* --------------------------------------------------------------- METRICS */
+
+type Metric = {
+  label: string;
+  icon: LucideIcon;
+  pick: (d: DayStats) => number | null;
+  /* "avg": a per-day measure (average over a range); "total": summed. */
+  kind: "avg" | "total";
+};
+
+const METRICS: Metric[] = [
+  { label: "Daily active users", icon: Users, pick: (d) => d.activeUsers, kind: "avg" },
+  { label: "Signed-in users", icon: UserCheck, pick: (d) => d.activeSignedIn, kind: "avg" },
+  { label: "New accounts", icon: UserPlus, pick: (d) => d.newAccounts, kind: "total" },
+  { label: "Profiles created", icon: IdCard, pick: (d) => d.profilesCreated, kind: "total" },
+  { label: "Page views", icon: Eye, pick: (d) => sum(d.pages), kind: "total" },
+  { label: "Listing opens", icon: Store, pick: (d) => sum(d.listings), kind: "total" },
+];
+
+const known = (days: DayStats[], pick: Metric["pick"]) =>
+  days.flatMap((d) => {
+    const v = pick(d);
+    return v === null ? [] : [{ day: d.day, v }];
+  });
+
+const mean = (xs: Array<{ v: number }>) => xs.reduce((a, x) => a + x.v, 0) / xs.length;
+
 /* ------------------------------------------------------------------ PAGE */
 
-type TableKey = "pages" | "listings" | "buttons";
-
-/* How often the Today view re-reads while open. */
-const AUTO_REFRESH_MS = 60_000;
+type ListKey = "pages" | "listings" | "buttons";
 
 export default function AnalyticsPage() {
   const [range, setRange] = useState<RangeKey>("today");
@@ -422,13 +528,13 @@ export default function AnalyticsPage() {
   const [results, setResults] = useState<Record<string, RangeResult>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
-  const [expanded, setExpanded] = useState<Record<TableKey, boolean>>({
+  const [expanded, setExpanded] = useState<Record<ListKey, boolean>>({
     pages: false,
     listings: false,
     buttons: false,
   });
   const [products, setProducts] = useState<Record<string, ProductInfo | null>>({});
-  const dayCache = useRef(new Map<string, DayStats>());
+  const dayCache = useRef<DayCache>({ stats: new Map(), checked: new Set(), live: new Set() });
   const loading = useRef(new Set<string>());
   const requested = useRef(new Set<string>());
 
@@ -442,9 +548,9 @@ export default function AnalyticsPage() {
   const result = results[key];
   const error = errors[key];
 
-  const load = (fresh: boolean) => {
+  const load = (mode: "initial" | "live" | "manual") => {
     loading.current.add(key);
-    return loadRange(range, today, dayCache.current, fresh)
+    return loadRange(range, today, dayCache.current, mode)
       .then((r) => {
         setResults((prev) => ({ ...prev, [key]: r }));
         setErrors((prev) => without(prev, key));
@@ -459,22 +565,22 @@ export default function AnalyticsPage() {
   // Each range is read once and kept, so switching back is instant.
   useEffect(() => {
     if (result || error || loading.current.has(key)) return;
-    load(false);
+    load("initial");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, result, error]);
 
   const refresh = () => {
     if (loading.current.has(key)) return;
     setRefreshing(true);
-    load(true).finally(() => setRefreshing(false));
+    load("manual").finally(() => setRefreshing(false));
   };
 
   /* Clearing the error makes the effect above read the range again. */
   const retry = () => setErrors((prev) => without(prev, key));
 
   // Today refreshes itself every minute while the tab is visible (and as
-  // soon as it's shown again), so the live numbers need no Refresh. Past
-  // days don't change, so they aren't re-read.
+  // soon as it's shown again), so the live numbers need no Refresh. Only
+  // today's shards and counts are re-read; past days don't change.
   const latest = useRef({ load, key, loadedAt: result?.loadedAt });
   useEffect(() => {
     latest.current = { load, key, loadedAt: result?.loadedAt };
@@ -485,7 +591,7 @@ export default function AnalyticsPage() {
       const { load: reload, key: k, loadedAt } = latest.current;
       if (document.visibilityState !== "visible" || loading.current.has(k)) return;
       if (loadedAt && Date.now() - loadedAt.getTime() < AUTO_REFRESH_MS - 5_000) return;
-      reload(true);
+      reload("live");
     };
     const timer = setInterval(tick, AUTO_REFRESH_MS);
     document.addEventListener("visibilitychange", tick);
@@ -495,21 +601,16 @@ export default function AnalyticsPage() {
     };
   }, [range]);
 
-  const totals = useMemo(() => {
-    const t = { pages: {} as Counters, listings: {} as Counters, buttons: {} as Counters, events: {} as Counters };
+  const sorted = useMemo(() => {
+    const t = { pages: {} as Counters, listings: {} as Counters, buttons: {} as Counters };
     for (const d of result?.days ?? []) {
       addInto(t.pages, d.pages);
       addInto(t.listings, d.listings);
       addInto(t.buttons, d.buttons);
-      addInto(t.events, d.events);
     }
-    return t;
-  }, [result]);
-
-  const sorted = useMemo(() => {
     const desc = (c: Counters) => Object.entries(c).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    return { pages: desc(totals.pages), listings: desc(totals.listings), buttons: desc(totals.buttons) };
-  }, [totals]);
+    return { pages: desc(t.pages), listings: desc(t.listings), buttons: desc(t.buttons) };
+  }, [result]);
 
   // Names and photos only for the listings on screen.
   const shownListingIds = useMemo(
@@ -531,53 +632,69 @@ export default function AnalyticsPage() {
       });
   }, [shownListingIds]);
 
-  const multiDay = range === "7d" || range === "30d";
-  const days = result?.days ?? [];
-  const hasUsage =
-    days.some((d) => (d.activeUsers ?? 0) > 0) ||
-    sum(totals.pages) + sum(totals.listings) + sum(totals.buttons) + sum(totals.events) > 0;
-  const newAccountsTotal = days.reduce((a, d) => a + (d.newAccounts ?? 0), 0);
-  const rangeSpan = rangeDays(range, today);
+  const toggle = (k: ListKey) => () => setExpanded((e) => ({ ...e, [k]: !e[k] }));
+  const span = result?.span ?? rangeDays(range, today);
+  const period =
+    span.length === 1
+      ? dayLabel(span[0], true)
+      : `${dayLabel(span[0])} – ${dayLabel(span[span.length - 1])}`;
 
   return (
-    <div>
-      <PageHeader
-        title="Reports & Analytics"
-        description="What people do in the app: daily users, the pages and listings they open, the buttons they tap, and new accounts and profiles."
-        actions={
-          <Button
-            variant="outline"
-            icon={RefreshCw}
-            loading={refreshing}
-            disabled={!result}
+    <div className="text-white">
+      {/* Header */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Analytics</h1>
+          <p className="mt-1 text-sm text-white/55">
+            Daily users, the pages and listings people open, the buttons they tap, and new
+            accounts and profiles.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <RangeTabs value={range} onChange={setRange} />
+          <button
+            type="button"
             onClick={refresh}
+            disabled={!result || refreshing}
+            aria-label="Refresh"
+            title="Refresh"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/60 transition hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-[#38bdf8]/50 focus-visible:outline-none disabled:opacity-40"
           >
-            Refresh
-          </Button>
-        }
-      >
-        <p className="mt-2 text-xs text-[#f4ead7]/50">
-          {LAG_HINT} Days run midnight to midnight, Central time.
-        </p>
-      </PageHeader>
+            <RefreshCw className={cx("h-4 w-4", refreshing && "animate-spin")} aria-hidden />
+          </button>
+        </div>
+      </div>
 
-      <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-3">
-        <Segmented<RangeKey> value={range} onChange={setRange} options={RANGE_OPTIONS} />
-        <p className="flex flex-wrap items-center gap-2 text-xs text-[#f4ead7]/55">
-          {range === "today" ? (
-            <>
-              <Badge tone="green">Live</Badge>
-              <span>{dayLabel(today, true)} · refreshes every minute</span>
-            </>
-          ) : rangeSpan.length === 1 ? (
-            <span>{dayLabel(rangeSpan[0], true)}</span>
-          ) : (
-            <span>
-              {dayLabel(rangeSpan[0], true)} – {dayLabel(rangeSpan[rangeSpan.length - 1], true)}
+      {/* Status */}
+      <div className="mt-3 mb-6 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-white/50">
+        {range === "today" && (
+          <>
+            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+              Live
             </span>
-          )}
-          {result && <span>· Updated {timeLabel(result.loadedAt)}</span>}
-        </p>
+            <Dot />
+          </>
+        )}
+        <span>{period}</span>
+        {result && (
+          <>
+            <Dot />
+            <span>Updated {localTime(result.loadedAt)}</span>
+          </>
+        )}
+        <InfoTip text={`${DAYS_HINT} ${LAG_HINT}`} />
+        {result && result.missing.length > 0 && (
+          <>
+            <Dot />
+            <span
+              className="text-amber-300/80"
+              title="These days have no nightly summary yet, or predate the app update. They appear once the summary has run."
+            >
+              {plural(result.missing.length, "older day")} not yet summarized
+            </span>
+          </>
+        )}
       </div>
 
       {error && result && (
@@ -587,332 +704,630 @@ export default function AnalyticsPage() {
       )}
 
       {error && !result ? (
-        <EmptyState
-          icon={AlertTriangle}
-          title="Couldn't load analytics"
-          description={error}
-          action={
-            <Button variant="outline" icon={RefreshCw} onClick={retry}>
+        <Panel title="Couldn't load analytics">
+          <div className="flex flex-col items-start gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-white/60">{error}</p>
+            <Button variant="secondary" icon={RefreshCw} onClick={retry}>
               Try again
             </Button>
-          }
-        />
+          </div>
+        </Panel>
       ) : !result ? (
-        <LoadingState label="Loading analytics…" />
+        <PageSkeleton />
       ) : (
         <>
-          {result.missing.length > 0 && (
-            <Alert tone="info" className="mb-6">
-              Some older days not yet summarized: {plural(result.missing.length, "day")} (
-              {result.missing.length === 1
-                ? dayLabel(result.missing[0])
-                : `${dayLabel(result.missing[0])} – ${dayLabel(result.missing[result.missing.length - 1])}`}
-              ) {result.missing.length === 1 ? "isn't" : "aren't"} included. They appear once the
-              nightly summary has run, or if they predate the app update there is nothing to show.
-            </Alert>
-          )}
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            {METRICS.map((m) => (
+              <KpiCard key={m.label} metric={m} result={result} range={range} />
+            ))}
+          </div>
 
-          {(hasUsage || newAccountsTotal > 0) && <KpiRow days={days} multiDay={multiDay} totals={totals} />}
+          <TrendChart
+            key={range}
+            days={result.trend}
+            stats={result.trendStats}
+            today={today}
+            subtitle={span.length === 1 ? `Last ${TREND_DAYS} days` : period}
+          />
 
-          {!hasUsage ? (
-            <EmptyState
-              icon={ChartSpline}
-              title="No data yet"
-              description="The app starts reporting after the update is installed."
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <RankedList
+              title="Top pages"
+              unit="view"
+              rows={sorted.pages.map(([k, n]) => ({ key: k, label: humanize(k), value: n }))}
+              expanded={expanded.pages}
+              onToggle={toggle("pages")}
             />
-          ) : (
-            <>
-              {multiDay && <DailyChart days={rangeSpan} stats={days} />}
-
-              <div className="grid gap-6 xl:grid-cols-3">
-                <TopTable
-                  title="Top pages"
-                  unit="view"
-                  rows={sorted.pages.map(([k, n]) => ({ key: k, label: humanize(k), value: n }))}
-                  share
-                  expanded={expanded.pages}
-                  onToggle={() => setExpanded((e) => ({ ...e, pages: !e.pages }))}
-                />
-                <TopTable
-                  title="Top listings"
-                  unit="open"
-                  rows={sorted.listings.map(([id, n]) => {
-                    const p = products[id];
-                    return {
-                      key: id,
-                      label:
-                        p === undefined ? (
-                          <span className="text-black/40">Loading…</span>
-                        ) : p === null ? (
-                          <span className="text-black/45 italic">(deleted listing)</span>
-                        ) : (
-                          p.name
-                        ),
-                      title: p ? p.name : id,
-                      thumb: p === undefined ? undefined : (p?.image ?? ""),
-                      value: n,
-                    };
-                  })}
-                  thumbs
-                  expanded={expanded.listings}
-                  onToggle={() => setExpanded((e) => ({ ...e, listings: !e.listings }))}
-                />
-                <TopTable
-                  title="Button taps"
-                  unit="tap"
-                  rows={sorted.buttons.map(([k, n]) => ({ key: k, label: humanize(k), value: n }))}
-                  expanded={expanded.buttons}
-                  onToggle={() => setExpanded((e) => ({ ...e, buttons: !e.buttons }))}
-                />
-              </div>
-            </>
-          )}
+            <RankedList
+              title="Button taps"
+              unit="tap"
+              rows={sorted.buttons.map(([k, n]) => ({ key: k, label: humanize(k), value: n }))}
+              expanded={expanded.buttons}
+              onToggle={toggle("buttons")}
+            />
+            <RankedList
+              className="lg:col-span-2"
+              title="Top listings"
+              unit="open"
+              columns
+              rows={sorted.listings.map(([id, n]) => {
+                const p = products[id];
+                return {
+                  key: id,
+                  label:
+                    p === undefined ? (
+                      <span className="inline-block h-3 w-32 animate-pulse rounded bg-white/8 align-middle" />
+                    ) : p === null ? (
+                      <span className="text-white/40 italic">(deleted listing)</span>
+                    ) : (
+                      p.name
+                    ),
+                  title: p ? p.name : id,
+                  thumb: p === undefined ? undefined : (p?.image ?? ""),
+                  value: n,
+                };
+              })}
+              thumbs
+              expanded={expanded.listings}
+              onToggle={toggle("listings")}
+            />
+          </div>
         </>
       )}
+
+      <p className="mt-8 text-xs text-white/35">
+        {LAG_HINT} {DAYS_HINT}
+      </p>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- CONTROLS */
+
+function RangeTabs({ value, onChange }: { value: RangeKey; onChange: (v: RangeKey) => void }) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Period"
+      className="inline-flex rounded-lg border border-white/10 bg-white/3 p-0.5 text-[13px]"
+    >
+      {RANGE_OPTIONS.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(o.value)}
+            className={cx(
+              "rounded-md px-2.5 py-1.5 font-medium whitespace-nowrap transition focus-visible:ring-2 focus-visible:ring-[#38bdf8]/50 focus-visible:outline-none sm:px-3",
+              active ? "bg-white/10 text-white" : "text-white/55 hover:text-white",
+            )}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const Dot = () => (
+  <span className="text-white/25" aria-hidden>
+    ·
+  </span>
+);
+
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        aria-label={text}
+        className="rounded p-0.5 text-white/35 transition hover:text-white/70 focus-visible:text-white/70 focus-visible:outline-none"
+      >
+        <Info className="h-3.5 w-3.5" aria-hidden />
+      </button>
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute top-full left-1/2 z-20 mt-2 w-64 -translate-x-1/2 rounded-lg border border-white/10 bg-[#161616] px-3 py-2 text-xs leading-relaxed text-white/75 opacity-0 shadow-xl transition group-focus-within:opacity-100 group-hover:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  );
+}
+
+/* ---------------------------------------------------------------- PANELS */
+
+function Panel({
+  title,
+  meta,
+  footer,
+  className,
+  children,
+}: {
+  title: ReactNode;
+  meta?: ReactNode;
+  footer?: ReactNode;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className={cx("min-w-0 rounded-2xl border border-white/8 bg-[#0d0d0d]", className)}>
+      <header className="flex items-center justify-between gap-3 border-b border-white/6 px-5 py-3.5">
+        <h2 className="text-sm font-medium text-white">{title}</h2>
+        {meta && <div className="text-xs text-white/45 tabular-nums">{meta}</div>}
+      </header>
+      <div className="px-5 py-3">{children}</div>
+      {footer && <footer className="border-t border-white/6 px-5 py-2.5">{footer}</footer>}
+    </section>
+  );
+}
+
+function PanelEmpty({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="py-10 text-center">
+      <p className="text-sm text-white/70">{title}</p>
+      {hint && <p className="mt-1 text-xs text-white/40">{hint}</p>}
+    </div>
+  );
+}
+
+const Bone = ({ className }: { className?: string }) => (
+  <div className={cx("animate-pulse rounded-md bg-white/6", className)} />
+);
+
+function PageSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading analytics">
+      <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {METRICS.map((m) => (
+          <div key={m.label} className="rounded-2xl border border-white/8 bg-[#0d0d0d] p-4">
+            <Bone className="h-3 w-24" />
+            <Bone className="mt-3 h-7 w-16" />
+            <Bone className="mt-3 h-3 w-28" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-2xl border border-white/8 bg-[#0d0d0d] p-5">
+        <Bone className="h-4 w-32" />
+        <Bone className="mt-5 h-56 w-full" />
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {[0, 1].map((i) => (
+          <div key={i} className="rounded-2xl border border-white/8 bg-[#0d0d0d] p-5">
+            <Bone className="h-4 w-28" />
+            {Array.from({ length: 5 }, (_, j) => (
+              <div key={j} className="mt-4">
+                <Bone className="h-3 w-full" />
+                <Bone className="mt-2 h-1 w-2/3" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ KPIS */
 
-function KpiRow({
-  days,
-  multiDay,
-  totals,
-}: {
-  days: DayStats[];
-  multiDay: boolean;
-  totals: { pages: Counters; listings: Counters };
-}) {
-  /* A per-day measure: the day's value, or average and peak over a range. */
-  const perDay = (pick: (d: DayStats) => number | null) => {
-    const known = days.flatMap((d) => {
-      const v = pick(d);
-      return v === null ? [] : [{ day: d.day, v }];
-    });
-    if (known.length === 0) return { value: "—", sub: "Couldn't count" };
-    if (!multiDay) return { value: fmt(known[0].v), sub: undefined };
-    const avg = known.reduce((a, k) => a + k.v, 0) / known.length;
-    const peak = known.reduce((a, k) => (k.v > a.v ? k : a));
-    return { value: fmtAvg(avg), sub: `avg per day · peak ${fmt(peak.v)} on ${dayLabel(peak.day)}` };
-  };
+function KpiCard({ metric, result, range }: { metric: Metric; result: RangeResult; range: RangeKey }) {
+  const { label, icon: Icon, pick, kind } = metric;
+  const multiDay = result.span.length > 1;
+  const cur = known(result.days, pick);
+  const prev = known(result.previous, pick);
 
-  const accounts = days.filter((d) => d.newAccounts !== null);
-  const uncounted = days.length - accounts.length;
-  const accountsTotal = accounts.reduce((a, d) => a + (d.newAccounts ?? 0), 0);
+  let value = "—";
+  let sub: string | undefined;
+  if (cur.length > 0) {
+    if (kind === "avg" && multiDay) {
+      const peak = cur.reduce((a, k) => (k.v > a.v ? k : a));
+      value = fmtAvg(mean(cur));
+      sub = `Avg per day · peak ${fmt(peak.v)}`;
+    } else {
+      value = fmt(cur.reduce((a, k) => a + k.v, 0));
+      const uncounted = result.days.length - cur.length + result.missing.length;
+      if (multiDay && uncounted > 0) sub = `${plural(uncounted, "day")} without data`;
+    }
+  } else {
+    sub = result.days.length > 0 ? "Couldn't count" : undefined;
+  }
 
-  const dau = perDay((d) => d.activeUsers);
-  const signedIn = perDay((d) => d.activeSignedIn);
+  // Per-day averages on both sides, so a period with fewer days of data
+  // compares fairly.
+  const prevMean = prev.length > 0 ? mean(prev) : 0;
+  const delta = cur.length > 0 && prevMean > 0 ? ((mean(cur) - prevMean) / prevMean) * 100 : null;
+
+  const byDay = new Map(result.days.map((d) => [d.day, d]));
+  const spark = multiDay
+    ? result.span.map((d) => {
+        const s = byDay.get(d);
+        return s ? pick(s) : null;
+      })
+    : null;
 
   return (
-    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-      <Kpi icon={Users} label="Daily active users" value={dau.value} sub={dau.sub} />
-      <Kpi icon={UserCheck} label="Signed-in users" value={signedIn.value} sub={signedIn.sub} />
-      <Kpi
-        icon={UserPlus}
-        label="New accounts"
-        value={accounts.length === 0 ? "—" : fmt(accountsTotal)}
-        sub={
-          accounts.length === 0
-            ? "Couldn't count"
-            : uncounted > 0
-              ? `${plural(uncounted, "day")} not counted`
-              : undefined
-        }
-      />
-      <Kpi
-        icon={IdCard}
-        label="Profiles created"
-        value={fmt(days.reduce((a, d) => a + d.profilesCreated, 0))}
-      />
-      <Kpi icon={Eye} label="Page views" value={fmt(sum(totals.pages))} />
-      <Kpi icon={Store} label="Listing opens" value={fmt(sum(totals.listings))} />
-    </div>
-  );
-}
-
-function Kpi({
-  icon: Icon,
-  label,
-  value,
-  sub,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-[#0d0d0d] p-4">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#7dd3fc]/15 text-[#7dd3fc]">
-        <Icon className="h-4.5 w-4.5" aria-hidden />
-      </span>
-      <p className="mt-4 text-2xl font-bold tabular-nums text-[#f4ead7]">{value}</p>
-      <p className="mt-0.5 text-sm text-[#f4ead7]/60">{label}</p>
-      {sub && <p className="mt-1 text-xs text-[#f4ead7]/40">{sub}</p>}
+    <div className="min-w-0 rounded-2xl border border-white/8 bg-[#0d0d0d] p-4">
+      <p className="flex items-center gap-1.5 truncate text-xs font-medium text-white/55">
+        <Icon className="h-3.5 w-3.5 shrink-0 text-white/35" aria-hidden />
+        {label}
+      </p>
+      <div className="mt-2 flex items-end justify-between gap-2">
+        <p className="text-2xl font-semibold tracking-tight text-white tabular-nums">{value}</p>
+        {spark && <Sparkline values={spark} />}
+      </div>
+      <p
+        className="mt-1.5 truncate text-xs"
+        title={range === "today" ? "Today so far, compared with all of yesterday" : undefined}
+      >
+        {delta === null ? (
+          <span className="text-white/35">—</span>
+        ) : (
+          <span
+            className={cx(
+              "font-medium tabular-nums",
+              Math.round(delta) > 0 ? "text-emerald-400" : Math.round(delta) < 0 ? "text-red-400" : "text-white/55",
+            )}
+          >
+            {Math.round(delta) > 0 ? "▲ " : Math.round(delta) < 0 ? "▼ " : ""}
+            {Math.abs(Math.round(delta))}%
+          </span>
+        )}{" "}
+        <span className="text-white/40">{VS_LABEL[range]}</span>
+      </p>
+      {sub && <p className="mt-0.5 truncate text-[11px] text-white/35">{sub}</p>}
     </div>
   );
 }
 
 /* ----------------------------------------------------------------- CHART */
 
-/* The smallest 1 / 2 / 2.5 / 5 × 10ⁿ at or above `v`. */
-function niceMax(v: number): number {
-  if (v <= 0) return 1;
-  const pow = 10 ** Math.floor(Math.log10(v));
-  return [1, 2, 2.5, 5, 10].map((s) => s * pow).find((s) => s >= v) ?? 10 * pow;
+/* A smooth path through the points (monotone cubic, so it never overshoots
+ * between days); gaps (null) split it into segments. */
+function smoothSegments(points: Array<[number, number] | null>): Array<Array<[number, number]>> {
+  const segments: Array<Array<[number, number]>> = [];
+  let run: Array<[number, number]> = [];
+  for (const p of points) {
+    if (p) run.push(p);
+    else if (run.length) {
+      segments.push(run);
+      run = [];
+    }
+  }
+  if (run.length) segments.push(run);
+  return segments;
 }
 
-/* Daily active users and new accounts per day (one axis: both are people). */
-function DailyChart({ days, stats }: { days: string[]; stats: DayStats[] }) {
+function monotonePath(pts: Array<[number, number]>): string {
+  if (pts.length === 1) return `M${pts[0][0]},${pts[0][1]}`;
+  const n = pts.length;
+  const dx = (i: number) => pts[i + 1][0] - pts[i][0];
+  const slope = Array.from({ length: n - 1 }, (_, i) => (pts[i + 1][1] - pts[i][1]) / dx(i));
+  const m = pts.map((_, i) => {
+    if (i === 0) return slope[0];
+    if (i === n - 1) return slope[n - 2];
+    if (slope[i - 1] * slope[i] <= 0) return 0;
+    return (2 * slope[i - 1] * slope[i]) / (slope[i - 1] + slope[i]);
+  });
+  let d = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx(i) / 3;
+    d += ` C${pts[i][0] + h},${pts[i][1] + m[i] * h} ${pts[i + 1][0] - h},${pts[i + 1][1] - m[i + 1] * h} ${pts[i + 1][0]},${pts[i + 1][1]}`;
+  }
+  return d;
+}
+
+/* Gridline step of 1 / 2 / 2.5 / 5 × 10ⁿ for about four intervals. */
+function niceScale(v: number): { max: number; ticks: number[] } {
+  const raw = Math.max(v, 1) / 4;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  const step = Math.max(1, [1, 2, 2.5, 5, 10].map((s) => s * pow).find((s) => s >= raw) ?? 10 * pow);
+  const max = Math.max(step, Math.ceil(v / step) * step);
+  const ticks: number[] = [];
+  for (let t = 0; t <= max + 1e-9; t += step) ticks.push(t);
+  return { max, ticks };
+}
+
+function useWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return width;
+}
+
+const CHART_H = 240;
+const PAD = { l: 40, r: 12, t: 12, b: 28 };
+
+/* Daily active users (area) and new accounts (dashed), on one axis: both are
+ * counts of people. */
+function TrendChart({
+  days,
+  stats,
+  today,
+  subtitle,
+}: {
+  days: string[];
+  stats: DayStats[];
+  today: string;
+  subtitle: string;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  const width = useWidth(box);
   const [hover, setHover] = useState<number | null>(null);
+
   const byDay = new Map(stats.map((s) => [s.day, s]));
-  const max = niceMax(
-    Math.max(0, ...stats.map((s) => Math.max(s.activeUsers ?? 0, s.newAccounts ?? 0))),
-  );
-  const step = days.length > 10 ? 5 : 1;
-  const height = (v: number | null) => (v ? `max(2px, ${(v / max) * 100}%)` : "0");
+  const dau = days.map((d) => byDay.get(d)?.activeUsers ?? null);
+  const accounts = days.map((d) => byDay.get(d)?.newAccounts ?? null);
+  const hasData = [...dau, ...accounts].some((v) => v !== null && v > 0);
+  const { max, ticks } = niceScale(Math.max(0, ...dau.map((v) => v ?? 0), ...accounts.map((v) => v ?? 0)));
+
+  const innerW = Math.max(0, width - PAD.l - PAD.r);
+  const innerH = CHART_H - PAD.t - PAD.b;
+  const x = (i: number) => PAD.l + (days.length === 1 ? innerW / 2 : (i * innerW) / (days.length - 1));
+  const y = (v: number) => PAD.t + innerH - (v / max) * innerH;
+  const baseline = PAD.t + innerH;
+  const toPoints = (vals: Array<number | null>) =>
+    smoothSegments(vals.map((v, i) => (v === null ? null : [x(i), y(v)])));
+  const dauSegs = toPoints(dau);
+  const accSegs = toPoints(accounts);
+
+  const labelEvery = Math.max(1, Math.ceil(days.length / (width < 520 ? 4 : 8)));
+
+  const pick = (e: PointerEvent<SVGSVGElement>) => {
+    if (days.length === 0 || innerW <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - rect.left - PAD.l;
+    const i = days.length === 1 ? 0 : Math.round((px / innerW) * (days.length - 1));
+    setHover(Math.min(days.length - 1, Math.max(0, i)));
+  };
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const step = e.key === "ArrowLeft" ? -1 : 1;
+    setHover((h) => Math.min(days.length - 1, Math.max(0, (h ?? days.length - 1) + (h === null ? 0 : step))));
+  };
+
+  const h = hover !== null ? { day: days[hover], s: byDay.get(days[hover]) } : null;
 
   return (
-    <section className="mb-6 rounded-2xl border border-white/10 bg-[#0d0d0d] p-5">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-[#f4ead7]">Daily users</h2>
-          <p className="mt-1 text-sm text-[#f4ead7]/60">Hover a day for its numbers.</p>
-        </div>
-        <div className="flex items-center gap-4 text-xs text-[#f4ead7]/70">
-          <Legend color={SERIES.active} label="Active users" />
-          <Legend color={SERIES.accounts} label="New accounts" />
-        </div>
-      </div>
+    <Panel
+      title="Active users"
+      meta={
+        <span className="flex items-center gap-4">
+          <span className="hidden text-white/40 sm:inline">{subtitle}</span>
+          <LegendItem label="Active users" swatch={<span className="h-2 w-2 rounded-full" style={{ background: ACCENT }} />} />
+          <LegendItem
+            label="New accounts"
+            swatch={<span className="w-3 border-t-2 border-dashed border-white/55" />}
+          />
+        </span>
+      }
+    >
+      <div
+        ref={box}
+        className="relative outline-none focus-visible:ring-2 focus-visible:ring-[#38bdf8]/40 rounded-lg"
+        style={{ height: CHART_H }}
+        tabIndex={hasData ? 0 : -1}
+        aria-label="Active users and new accounts per day. Use the arrow keys to read each day."
+        onKeyDown={onKey}
+        onBlur={() => setHover(null)}
+      >
+        {!hasData ? (
+          <div className="flex h-full items-center justify-center">
+            <PanelEmpty
+              title="No data yet"
+              hint="The app starts reporting after the update is installed."
+            />
+          </div>
+        ) : (
+          width > 0 && (
+            <svg
+              width={width}
+              height={CHART_H}
+              className="block touch-none select-none"
+              onPointerMove={pick}
+              onPointerDown={pick}
+              onPointerLeave={() => setHover(null)}
+              aria-hidden
+            >
+              <defs>
+                <linearGradient id="dau-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={ACCENT} stopOpacity={0.28} />
+                  <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+                </linearGradient>
+              </defs>
 
-      <div className="flex gap-2">
-        {/* Y axis */}
-        <div className="relative h-48 w-8 shrink-0 text-right text-[10px] text-[#f4ead7]/40 tabular-nums">
-          <span className="absolute top-0 right-0 -translate-y-1/2">{fmt(max)}</span>
-          <span className="absolute top-1/2 right-0 -translate-y-1/2">{fmtAvg(max / 2)}</span>
-          <span className="absolute bottom-0 right-0 translate-y-1/2">0</span>
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="relative h-48" onMouseLeave={() => setHover(null)}>
-            {/* Grid */}
-            <div className="pointer-events-none absolute inset-x-0 top-0 border-t border-white/5" />
-            <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-white/5" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 border-t border-white/15" />
-
-            <div className="absolute inset-0 flex">
-              {days.map((day, i) => {
-                const s = byDay.get(day);
-                const active = hover === i;
-                return (
-                  <div
-                    key={day}
-                    tabIndex={0}
-                    role="img"
-                    aria-label={
-                      s
-                        ? `${dayLabel(day, true)}: ${s.activeUsers ?? "unknown"} active users, ${s.newAccounts ?? "unknown"} new accounts`
-                        : `${dayLabel(day, true)}: no data`
-                    }
-                    onMouseEnter={() => setHover(i)}
-                    onFocus={() => setHover(i)}
-                    onBlur={() => setHover(null)}
-                    className={cx(
-                      "relative flex h-full min-w-0 flex-1 items-end justify-center gap-0.5 rounded-sm px-px outline-none",
-                      active && "bg-white/4",
-                    )}
+              {ticks.map((t) => (
+                <g key={t}>
+                  <line
+                    x1={PAD.l}
+                    x2={width - PAD.r}
+                    y1={y(t)}
+                    y2={y(t)}
+                    stroke="white"
+                    strokeOpacity={t === 0 ? 0.14 : 0.06}
+                  />
+                  <text
+                    x={PAD.l - 8}
+                    y={y(t)}
+                    dy="0.32em"
+                    textAnchor="end"
+                    className="fill-white/40 text-[10px] tabular-nums"
                   >
-                    {s ? (
-                      <>
-                        <span
-                          className="w-full max-w-4 rounded-t-sm"
-                          style={{ height: height(s.activeUsers), background: SERIES.active }}
-                        />
-                        <span
-                          className="w-full max-w-4 rounded-t-sm"
-                          style={{ height: height(s.newAccounts), background: SERIES.accounts }}
-                        />
-                      </>
+                    {fmt(t)}
+                  </text>
+                </g>
+              ))}
+
+              {days.map((d, i) =>
+                (days.length - 1 - i) % labelEvery === 0 ? (
+                  <text
+                    key={d}
+                    x={x(i)}
+                    y={CHART_H - 8}
+                    textAnchor={days.length > 1 && i === 0 ? "start" : days.length > 1 && i === days.length - 1 ? "end" : "middle"}
+                    className="fill-white/40 text-[10px]"
+                  >
+                    {d === today ? "Today" : dayLabel(d)}
+                  </text>
+                ) : null,
+              )}
+
+              {dauSegs.map((seg, i) => {
+                const line = monotonePath(seg);
+                return (
+                  <g key={`dau${i}`}>
+                    {seg.length > 1 && (
+                      <path
+                        d={`${line} L${seg[seg.length - 1][0]},${baseline} L${seg[0][0]},${baseline} Z`}
+                        fill="url(#dau-fill)"
+                      />
+                    )}
+                    {seg.length > 1 ? (
+                      <path d={line} fill="none" stroke={ACCENT} strokeWidth={2} strokeLinejoin="round" />
                     ) : (
-                      <span className="h-0.5 w-3/4 bg-white/15" />
+                      <circle cx={seg[0][0]} cy={seg[0][1]} r={3} fill={ACCENT} />
                     )}
-                    {active && (
-                      <Tooltip day={day} stats={s} align={i < days.length / 2 ? "left" : "right"} />
-                    )}
-                  </div>
+                  </g>
                 );
               })}
-            </div>
-          </div>
+              {accSegs.map((seg, i) =>
+                seg.length > 1 ? (
+                  <path
+                    key={`acc${i}`}
+                    d={monotonePath(seg)}
+                    fill="none"
+                    stroke="white"
+                    strokeOpacity={0.55}
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                  />
+                ) : (
+                  <circle key={`acc${i}`} cx={seg[0][0]} cy={seg[0][1]} r={2.5} fill="white" fillOpacity={0.55} />
+                ),
+              )}
 
-          {/* X axis */}
-          <div className="mt-2 flex h-4 text-[10px] text-[#f4ead7]/40">
-            {days.map((day, i) => (
-              <span key={day} className="relative min-w-0 flex-1 text-center whitespace-nowrap">
-                {(days.length - 1 - i) % step === 0 && (
-                  <span className="absolute left-1/2 -translate-x-1/2">
-                    {step === 1 ? dayLabel(day, true).replace(",", "") : dayLabel(day)}
-                  </span>
-                )}
-              </span>
-            ))}
+              {hover !== null && (
+                <g>
+                  <line x1={x(hover)} x2={x(hover)} y1={PAD.t} y2={baseline} stroke="white" strokeOpacity={0.2} />
+                  {dau[hover] !== null && (
+                    <circle cx={x(hover)} cy={y(dau[hover]!)} r={4.5} fill={ACCENT} stroke={SURFACE} strokeWidth={2} />
+                  )}
+                  {accounts[hover] !== null && (
+                    <circle cx={x(hover)} cy={y(accounts[hover]!)} r={4} fill="#d4d4d4" stroke={SURFACE} strokeWidth={2} />
+                  )}
+                </g>
+              )}
+              {/* Fills the plot so the whole area tracks the pointer. */}
+              <rect x={PAD.l} y={PAD.t} width={innerW} height={innerH} fill="transparent" />
+            </svg>
+          )
+        )}
+
+        {h && hover !== null && (
+          <div
+            className="pointer-events-none absolute top-2 z-10 w-48 rounded-lg border border-white/10 bg-[#161616]/95 px-3 py-2 text-xs shadow-xl"
+            style={{
+              left: x(hover),
+              transform: x(hover) > width / 2 ? "translateX(calc(-100% - 12px))" : "translateX(12px)",
+            }}
+          >
+            <p className="mb-1.5 font-medium text-white">
+              {dayLabel(h.day, true)}
+              {h.day === today && <span className="font-normal text-white/45"> · so far</span>}
+            </p>
+            {h.s ? (
+              <div className="space-y-1">
+                <TipRow label="Active users" value={h.s.activeUsers} swatch={ACCENT} />
+                <TipRow label="Signed in" value={h.s.activeSignedIn} />
+                <TipRow label="New accounts" value={h.s.newAccounts} swatch="#d4d4d4" />
+              </div>
+            ) : (
+              <p className="text-white/50">No summary for this day</p>
+            )}
           </div>
-        </div>
+        )}
+
+        {/* The same numbers for screen readers. */}
+        <table className="sr-only">
+          <caption>Active users and new accounts per day</caption>
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Active users</th>
+              <th>New accounts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {days.map((d, i) => (
+              <tr key={d}>
+                <td>{dayLabel(d, true)}</td>
+                <td>{dau[i] ?? "no data"}</td>
+                <td>{accounts[i] ?? "no data"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    </section>
+    </Panel>
   );
 }
 
-function Legend({ color, label }: { color: string; label: string }) {
+function LegendItem({ label, swatch }: { label: string; swatch: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className="h-2.5 w-2.5 rounded-sm" style={{ background: color }} aria-hidden />
+    <span className="inline-flex items-center gap-1.5 text-white/60">
+      <span className="flex items-center" aria-hidden>
+        {swatch}
+      </span>
       {label}
     </span>
   );
 }
 
-function Tooltip({
-  day,
-  stats,
-  align,
-}: {
-  day: string;
-  stats: DayStats | undefined;
-  align: "left" | "right";
-}) {
-  const row = (color: string | null, label: string, v: number | null) => (
+function TipRow({ label, value, swatch }: { label: string; value: number | null; swatch?: string }) {
+  return (
     <div className="flex items-center justify-between gap-4">
-      <span className="inline-flex items-center gap-1.5 text-[#f4ead7]/70">
-        {color && <span className="h-2 w-2 rounded-sm" style={{ background: color }} aria-hidden />}
+      <span className="inline-flex items-center gap-1.5 text-white/60">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ background: swatch ?? "transparent" }} aria-hidden />
         {label}
       </span>
-      <span className="font-semibold text-[#f4ead7] tabular-nums">{v === null ? "—" : fmt(v)}</span>
-    </div>
-  );
-  return (
-    <div
-      className={cx(
-        "pointer-events-none absolute top-0 z-10 w-48 rounded-xl border border-white/15 bg-[#161616] px-3 py-2 text-xs shadow-xl",
-        align === "left" ? "left-0" : "right-0",
-      )}
-    >
-      <p className="mb-1.5 font-semibold text-[#f4ead7]">{dayLabel(day, true)}</p>
-      {stats ? (
-        <div className="space-y-1">
-          {row(SERIES.active, "Active users", stats.activeUsers)}
-          {row(null, "Signed in", stats.activeSignedIn)}
-          {row(SERIES.accounts, "New accounts", stats.newAccounts)}
-        </div>
-      ) : (
-        <p className="text-[#f4ead7]/60">Not summarized yet</p>
-      )}
+      <span className="font-medium text-white tabular-nums">{value === null ? "—" : fmt(value)}</span>
     </div>
   );
 }
 
-/* ---------------------------------------------------------------- TABLES */
+function Sparkline({ values }: { values: Array<number | null> }) {
+  const W = 64;
+  const H = 22;
+  const present = values.filter((v): v is number => v !== null);
+  if (present.length < 2) return null;
+  const max = Math.max(...present, 1);
+  const x = (i: number) => (values.length === 1 ? W / 2 : (i * (W - 2)) / (values.length - 1) + 1);
+  const y = (v: number) => H - 2 - (v / max) * (H - 4);
+  const segs = smoothSegments(values.map((v, i) => (v === null ? null : [x(i), y(v)])));
+  const last = segs[segs.length - 1];
+  const end = last[last.length - 1];
+  return (
+    <svg width={W} height={H} className="mb-1 shrink-0 overflow-visible" aria-hidden>
+      {segs.map((seg, i) =>
+        seg.length > 1 ? (
+          <path key={i} d={monotonePath(seg)} fill="none" stroke={ACCENT} strokeWidth={1.5} strokeOpacity={0.9} />
+        ) : null,
+      )}
+      <circle cx={end[0]} cy={end[1]} r={2} fill={ACCENT} />
+    </svg>
+  );
+}
+
+/* ----------------------------------------------------------------- LISTS */
 
 type Row = {
   key: string;
@@ -924,101 +1339,97 @@ type Row = {
   value: number;
 };
 
-function TopTable({
+/* Ranked list: the bar is relative to the top row (so the ranking reads at a
+ * glance), the percentage is the row's share of the total. */
+function RankedList({
   title,
   unit,
   rows,
-  share = false,
   thumbs = false,
+  columns = false,
   expanded,
   onToggle,
+  className,
 }: {
   title: string;
   unit: string;
   rows: Row[];
-  /* Show each row's share of the total as a bar. */
-  share?: boolean;
-  /* Show a thumbnail column (listings). */
   thumbs?: boolean;
+  /* Two columns on wide screens (full-width card). */
+  columns?: boolean;
   expanded: boolean;
   onToggle: () => void;
+  className?: string;
 }) {
   const total = rows.reduce((a, r) => a + r.value, 0);
+  const top = rows[0]?.value ?? 0;
   const shown = expanded ? rows : rows.slice(0, TOP_ROWS);
 
   return (
-    <section className="min-w-0">
-      <SectionHeading
-        title={title}
-        description={rows.length ? `${plural(total, unit)} · ${plural(rows.length, "item")}` : undefined}
-        className="mb-3"
-      />
+    <Panel
+      className={className}
+      title={title}
+      meta={rows.length > 0 ? plural(total, unit) : undefined}
+      footer={
+        rows.length > TOP_ROWS ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="text-xs font-medium text-white/55 transition hover:text-white"
+          >
+            {expanded ? "Show less" : `View all ${fmt(rows.length)}`}
+          </button>
+        ) : undefined
+      }
+    >
       {rows.length === 0 ? (
-        <EmptyState title={`No ${unit}s in this period`} className="py-8" />
+        <PanelEmpty title={`No ${unit}s in this period`} hint="The app starts reporting after the update is installed." />
       ) : (
-        <>
-          <div className={table.wrap}>
-            <table className={table.table}>
-              <thead className={table.thead}>
-                <tr>
-                  <th className={cx(table.th, "w-8 text-right")}>#</th>
-                  <th className={table.th}>Name</th>
-                  <th className={cx(table.th, "text-right")}>{unit[0].toUpperCase() + unit.slice(1)}s</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shown.map((r, i) => {
-                  const pct = total ? (r.value / total) * 100 : 0;
-                  return (
-                    <tr key={r.key} className={table.row}>
-                      <td className={cx(table.td, "text-right text-black/40 tabular-nums")}>{i + 1}</td>
-                      <td className={cx(table.td, "max-w-0 w-full")}>
-                        <div className="flex min-w-0 items-center gap-2.5">
-                          {thumbs &&
-                            (r.thumb ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={r.thumb} alt="" className={cx(table.thumb, "shrink-0")} />
-                            ) : (
-                              <span className={cx(table.thumbEmpty, "shrink-0")}>
-                                {r.thumb === "" ? "No photo" : ""}
-                              </span>
-                            ))}
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate" title={r.title ?? r.key}>
-                              {r.label}
-                            </p>
-                            {share && (
-                              <div className="mt-1 flex items-center gap-2">
-                                <span className="h-1 flex-1 overflow-hidden rounded-full bg-black/10">
-                                  <span
-                                    className="block h-full rounded-full"
-                                    style={{ width: `${pct}%`, background: SERIES.active }}
-                                  />
-                                </span>
-                                <span className="w-9 text-right text-[11px] text-black/50 tabular-nums">
-                                  {pct < 1 ? "<1" : Math.round(pct)}%
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      <td className={cx(table.td, "text-right font-semibold tabular-nums")}>{fmt(r.value)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {rows.length > TOP_ROWS && (
-            <div className="mt-2 flex justify-end">
-              <Button variant="secondary" size="sm" onClick={onToggle}>
-                {expanded ? `Show top ${TOP_ROWS}` : `Show all ${fmt(rows.length)}`}
-              </Button>
-            </div>
-          )}
-        </>
+        <ol className={cx(columns && "lg:columns-2 lg:gap-x-10")}>
+          {shown.map((r, i) => (
+            <li key={r.key} className="flex break-inside-avoid items-center gap-3 py-1.5">
+              <span className="w-5 shrink-0 self-start pt-0.5 text-right text-xs text-white/35 tabular-nums">
+                {i + 1}
+              </span>
+              {thumbs &&
+                (r.thumb ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={r.thumb}
+                    alt=""
+                    className="h-9 w-9 shrink-0 rounded-md border border-white/10 bg-white/5 object-cover"
+                  />
+                ) : (
+                  <span
+                    className={cx(
+                      "h-9 w-9 shrink-0 rounded-md border border-white/10 bg-white/4",
+                      r.thumb === undefined && "animate-pulse",
+                    )}
+                  />
+                ))}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="truncate text-sm text-white/90" title={r.title ?? r.key}>
+                    {r.label}
+                  </span>
+                  <span className="shrink-0 text-sm font-medium text-white tabular-nums">{fmt(r.value)}</span>
+                </div>
+                <div className="mt-1 flex items-center gap-3">
+                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-white/6">
+                    <span
+                      className="block h-full rounded-full"
+                      style={{ width: `${top ? (r.value / top) * 100 : 0}%`, background: ACCENT }}
+                    />
+                  </span>
+                  <span className="w-9 shrink-0 text-right text-[11px] text-white/45 tabular-nums">
+                    {pctLabel(total ? (r.value / total) * 100 : 0)}
+                  </span>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
       )}
-    </section>
+    </Panel>
   );
 }
