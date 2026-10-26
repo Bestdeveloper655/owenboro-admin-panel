@@ -9,6 +9,7 @@ import {
   Bell,
   CalendarDays,
   ChartColumn,
+  ChartSpline,
   ClipboardList,
   Flag,
   FolderTree,
@@ -56,7 +57,11 @@ type MenuSection = {
 export const menuSections: MenuSection[] = [
   {
     title: "Overview",
-    items: [{ name: "Dashboard", path: "/dashboard", icon: LayoutDashboard }],
+    items: [
+      { name: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
+      // Usage counts the app reports (analytics_daily), read by admins only.
+      { name: "Reports & Analytics", path: "/dashboard/analytics", icon: ChartSpline, adminOnly: true },
+    ],
   },
   {
     title: "Directory",
