@@ -24,9 +24,13 @@ import {
 import {
   collection,
   doc,
+  average,
   documentId,
+  getAggregateFromServer,
   getCountFromServer,
   getDocs,
+  limit,
+  orderBy,
   query,
   Timestamp,
   where,
@@ -469,6 +473,77 @@ async function fetchProducts(ids: string[]): Promise<Record<string, ProductInfo 
   return out;
 }
 
+/* ---------------------------------------------------------------- STREAKS */
+
+/* Daily messaging streaks, counted by the server on each user:
+ * `Users/{uid}.streak` {current, longest, lastDay (Central day of their last
+ * message), updatedAt}. A streak is alive while lastDay is today or
+ * yesterday. Read "right now", independent of the selected range: 1 count +
+ * 1 average aggregation + 25 user docs. */
+
+type StreakUser = {
+  uid: string;
+  name: string;
+  photo: string;
+  current: number;
+  longest: number;
+};
+
+type Streaks = {
+  /* null: the query failed. */
+  alive: number | null;
+  average: number | null;
+  top: StreakUser[] | null;
+  loadedAt: Date;
+};
+
+const STREAK_CANDIDATES = 25;
+const STREAK_TOP = 10;
+
+async function loadStreaks(today: string): Promise<Streaks> {
+  const yesterday = addDays(today, -1);
+  const users = collection(db, "Users");
+  // Single-field range: no composite index needed. Filtering current >= 2 as
+  // well would need one, so this counts every alive streak.
+  const alive = query(users, where("streak.lastDay", ">=", yesterday));
+  const [aliveCount, avg, top] = await Promise.all([
+    count(alive, "alive streaks"),
+    getAggregateFromServer(alive, { avg: average("streak.current") })
+      .then((snap) => snap.data().avg)
+      .catch((err) => {
+        console.error("Analytics: average streak failed:", err);
+        return null;
+      }),
+    getDocs(query(users, orderBy("streak.current", "desc"), limit(STREAK_CANDIDATES)))
+      .then((snap) =>
+        snap.docs.flatMap((d): StreakUser[] => {
+          const x = d.data();
+          const st = (x.streak ?? {}) as { current?: unknown; longest?: unknown; lastDay?: unknown };
+          const current = num(st.current) ?? 0;
+          // Lapsed streaks still carry their old `current`; leave them out.
+          if (typeof st.lastDay !== "string" || st.lastDay < yesterday || current <= 0) return [];
+          const photos = Array.isArray(x.photo_urls)
+            ? x.photo_urls.filter((u: unknown): u is string => typeof u === "string" && u !== "")
+            : [];
+          return [
+            {
+              uid: d.id,
+              name: x.full_name || x.display_name || "No name",
+              photo: (typeof x.photo_url === "string" && x.photo_url) || photos[0] || "",
+              current,
+              longest: Math.max(num(st.longest) ?? 0, current),
+            },
+          ];
+        }).slice(0, STREAK_TOP),
+      )
+      .catch((err) => {
+        console.error("Analytics: top streaks failed:", err);
+        return null;
+      }),
+  ]);
+  return { alive: aliveCount, average: avg ?? null, top, loadedAt: new Date() };
+}
+
 function describeError(err: unknown): string {
   const { code, message } = (err ?? {}) as { code?: string; message?: string };
   if (code === "permission-denied") {
@@ -534,6 +609,7 @@ export default function AnalyticsPage() {
     buttons: false,
   });
   const [products, setProducts] = useState<Record<string, ProductInfo | null>>({});
+  const [streaks, setStreaks] = useState<Streaks | null>(null);
   const dayCache = useRef<DayCache>({ stats: new Map(), checked: new Set(), live: new Set() });
   const loading = useRef(new Set<string>());
   const requested = useRef(new Set<string>());
@@ -569,10 +645,17 @@ export default function AnalyticsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, result, error]);
 
+  // Streaks are "right now": read on page load and on Refresh, not on the
+  // 1-minute auto-refresh.
+  const fetchStreaks = () => loadStreaks(centralToday()).then(setStreaks);
+  useEffect(() => {
+    fetchStreaks();
+  }, []);
+
   const refresh = () => {
     if (loading.current.has(key)) return;
     setRefreshing(true);
-    load("manual").finally(() => setRefreshing(false));
+    Promise.all([load("manual"), fetchStreaks()]).finally(() => setRefreshing(false));
   };
 
   /* Clearing the error makes the effect above read the range again. */
@@ -721,6 +804,8 @@ export default function AnalyticsPage() {
               <KpiCard key={m.label} metric={m} result={result} range={range} />
             ))}
           </div>
+
+          <StreaksRow streaks={streaks} />
 
           <TrendChart
             key={range}
@@ -871,6 +956,95 @@ function PanelEmpty({ title, hint }: { title: string; hint?: string }) {
     <div className="py-10 text-center">
       <p className="text-sm text-white/70">{title}</p>
       {hint && <p className="mt-1 text-xs text-white/40">{hint}</p>}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------- STREAKS UI */
+
+function StreaksRow({ streaks }: { streaks: Streaks | null }) {
+  const stat = (label: string, value: string, hint: string) => (
+    <div className="min-w-0 rounded-2xl border border-white/8 bg-[#0d0d0d] p-4">
+      <p className="truncate text-xs font-medium text-white/55">{label}</p>
+      {streaks ? (
+        <p className="mt-2 text-2xl font-semibold tracking-tight text-white tabular-nums">{value}</p>
+      ) : (
+        <Bone className="mt-3 h-7 w-16" />
+      )}
+      <p className="mt-1.5 text-xs text-white/40">{hint}</p>
+    </div>
+  );
+
+  return (
+    <div className="mb-4">
+      <p className="mb-2 flex items-center gap-2 text-[11px] font-medium tracking-wider text-white/40 uppercase">
+        Streaks
+        <Dot />
+        <span className="normal-case tracking-normal">Right now</span>
+      </p>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {stat(
+          "Alive streaks",
+          streaks?.alive == null ? "—" : fmt(streaks.alive),
+          "People who sent a message today or yesterday",
+        )}
+        {stat(
+          "Average streak",
+          streaks?.average == null ? "—" : `${fmtAvg(streaks.average)} ${streaks.average === 1 ? "day" : "days"}`,
+          "Across alive streaks",
+        )}
+        <Panel
+          className="md:col-span-2"
+          title="Top streaks"
+          meta={streaks?.top?.length ? `Top ${streaks.top.length}` : undefined}
+        >
+          {!streaks ? (
+            <div className="grid gap-x-8 sm:grid-cols-2">
+              {Array.from({ length: 4 }, (_, i) => (
+                <div key={i} className="flex items-center gap-3 py-1.5">
+                  <Bone className="h-7 w-7 rounded-full" />
+                  <Bone className="h-3 flex-1" />
+                </div>
+              ))}
+            </div>
+          ) : streaks.top === null ? (
+            <PanelEmpty title="Couldn't load streaks" hint="Try Refresh in a moment." />
+          ) : streaks.top.length === 0 ? (
+            <PanelEmpty title="No streaks right now" hint="Streaks start when someone sends messages on consecutive days." />
+          ) : (
+            <ol className="sm:columns-2 sm:gap-x-8">
+              {streaks.top.map((u, i) => (
+                <li key={u.uid} className="flex break-inside-avoid items-center gap-3 py-1.5">
+                  <span className="w-5 shrink-0 text-right text-xs text-white/35 tabular-nums">{i + 1}</span>
+                  {u.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={u.photo}
+                      alt=""
+                      className="h-7 w-7 shrink-0 rounded-full border border-white/10 bg-white/5 object-cover"
+                    />
+                  ) : (
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-[11px] font-medium text-white/60">
+                      {u.name.trim()[0]?.toUpperCase() ?? "?"}
+                    </span>
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-sm text-white/90" title={u.name}>
+                    {u.name}
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-sm font-medium text-[#38bdf8] tabular-nums">
+                      <span aria-hidden>🔥 </span>
+                      {fmt(u.current)}
+                      <span className="sr-only"> day streak</span>
+                    </span>
+                    <span className="block text-[11px] text-white/40 tabular-nums">longest {fmt(u.longest)}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Panel>
+      </div>
     </div>
   );
 }
