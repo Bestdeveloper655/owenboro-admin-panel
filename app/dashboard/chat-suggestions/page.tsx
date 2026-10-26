@@ -84,7 +84,14 @@ export default function ChatSuggestionsPage() {
       setNotice("Saved. Every group chat in the app shows these now.");
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
-      setError(code === "permission-denied" ? "Only admins can change the suggestions." : "Couldn't save. Please try again.");
+      // Admins are refused too when the chat_suggestions rule isn't deployed.
+      setError(
+        code !== "permission-denied"
+          ? "Couldn't save. Please try again."
+          : isAdmin
+            ? "The database refused the save. The Firestore rules for Chat Suggestions may not be deployed yet."
+            : "Only admins can change the suggestions.",
+      );
     } finally {
       setSaving(false);
     }
