@@ -709,7 +709,7 @@ function UserPhotos({
         <button
           type="button"
           onClick={() => onZoom(photos[0])}
-          className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-black/10 ring-2 ring-[#ff7a59]/50 transition hover:ring-[#ff7a59]"
+          className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-black/10 ring-2 ring-[#38bdf8]/50 transition hover:ring-[#38bdf8]"
           aria-label="View profile photo"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -737,7 +737,7 @@ function UserPhotos({
             type="button"
             key={i}
             onClick={() => onZoom(url)}
-            className="aspect-square overflow-hidden rounded-xl bg-black/10 ring-1 ring-black/10 transition hover:ring-2 hover:ring-[#ff7a59]"
+            className="aspect-square overflow-hidden rounded-xl bg-black/10 ring-1 ring-black/10 transition hover:ring-2 hover:ring-[#38bdf8]"
             aria-label={`View photo ${i + 1}`}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}

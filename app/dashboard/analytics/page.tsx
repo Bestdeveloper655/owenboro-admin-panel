@@ -95,7 +95,7 @@ const TOP_ROWS = 15;
 const IN_CHUNK = 30;
 
 const SERIES = {
-  active: "#ee5a36",
+  active: "#0ea5e9",
   accounts: "#0b9ad8",
 };
 
@@ -744,7 +744,7 @@ function Kpi({
 }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-[#0d0d0d] p-4">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#ff6b4a]/15 text-[#ff6b4a]">
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#7dd3fc]/15 text-[#7dd3fc]">
         <Icon className="h-4.5 w-4.5" aria-hidden />
       </span>
       <p className="mt-4 text-2xl font-bold tabular-nums text-[#f4ead7]">{value}</p>

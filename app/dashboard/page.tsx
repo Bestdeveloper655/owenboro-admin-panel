@@ -57,7 +57,7 @@ export default function DashboardPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold tracking-tight text-[#ff7a59] sm:text-3xl">
+        <h1 className="text-2xl font-bold tracking-tight text-[#38bdf8] sm:text-3xl">
           Dashboard
         </h1>
         <p className="mt-1.5 text-sm text-[#e8dcc7]/80 sm:text-base">
@@ -106,7 +106,7 @@ export default function DashboardPage() {
                       href={item.path}
                       className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-[#f4ead7]/85 transition hover:bg-white/5 hover:text-[#f4ead7]"
                     >
-                      <Icon className="h-4 w-4 shrink-0 text-[#ff6b4a]" aria-hidden />
+                      <Icon className="h-4 w-4 shrink-0 text-[#7dd3fc]" aria-hidden />
                       <span className="truncate">{item.name}</span>
                     </Link>
                   </li>
@@ -135,12 +135,12 @@ function StatCard({
   const body = (
     <>
       <div className="flex items-center justify-between">
-        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ff6b4a]/15 text-[#ff6b4a]">
+        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#7dd3fc]/15 text-[#7dd3fc]">
           <Icon className="h-5 w-5" aria-hidden />
         </span>
         {href && (
           <ArrowRight
-            className="h-4 w-4 text-[#f4ead7]/30 transition group-hover:translate-x-0.5 group-hover:text-[#ff6b4a]"
+            className="h-4 w-4 text-[#f4ead7]/30 transition group-hover:translate-x-0.5 group-hover:text-[#7dd3fc]"
             aria-hidden
           />
         )}
@@ -154,7 +154,7 @@ function StatCard({
     "group block rounded-2xl border border-white/10 bg-[#0d0d0d] p-5 transition";
 
   return href ? (
-    <Link href={href} className={`${className} hover:border-[#ff6b4a]/60`}>
+    <Link href={href} className={`${className} hover:border-[#7dd3fc]/60`}>
       {body}
     </Link>
   ) : (

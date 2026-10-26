@@ -199,7 +199,7 @@ export default function Sidebar({ open = false, onClose }: Props) {
       >
         <div className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 px-5">
           <Link href="/dashboard" onClick={onClose} className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ff6b4a] text-sm font-bold text-black">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#7dd3fc] text-sm font-bold text-black">
               OA
             </span>
             <span className="min-w-0 leading-tight">
@@ -240,7 +240,7 @@ export default function Sidebar({ open = false, onClose }: Props) {
                         aria-current={isActive ? "page" : undefined}
                         className={`group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
                           isActive
-                            ? "bg-[#ff6b4a] text-black"
+                            ? "bg-[#7dd3fc] text-black"
                             : "text-[#f4ead7]/75 hover:bg-white/5 hover:text-[#f4ead7]"
                         }`}
                       >
@@ -248,7 +248,7 @@ export default function Sidebar({ open = false, onClose }: Props) {
                           className={`size-4.5 shrink-0 ${
                             isActive
                               ? "text-black"
-                              : "text-[#f4ead7]/45 group-hover:text-[#ff6b4a]"
+                              : "text-[#f4ead7]/45 group-hover:text-[#7dd3fc]"
                           }`}
                           aria-hidden
                         />

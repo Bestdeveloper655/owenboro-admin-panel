@@ -11,7 +11,7 @@ import { auth } from "@/lib/firebaseServices";
 type Challenge = { challengeId: string; sentTo: string; expiresInMinutes: number };
 
 const inputClass =
-  "mt-2 w-full rounded-xl border border-white/25 bg-black px-4 py-3 text-white outline-none focus:border-[#ff7a59]";
+  "mt-2 w-full rounded-xl border border-white/25 bg-black px-4 py-3 text-white outline-none focus:border-[#38bdf8]";
 
 export default function Page() {
   const router = useRouter();
@@ -98,13 +98,13 @@ export default function Page() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-black px-6">
-      <div className="w-full max-w-md rounded-3xl border border-[#ff7a59]/60 bg-[#0a0a0a] p-10 shadow-[0_0_40px_rgba(255,122,89,0.12)]">
+      <div className="w-full max-w-md rounded-3xl border border-[#38bdf8]/60 bg-[#0a0a0a] p-10 shadow-[0_0_40px_rgba(56,189,248,0.12)]">
 
-        <h1 className="text-center text-3xl font-bold text-[#ff7a59]">
+        <h1 className="text-center text-3xl font-bold text-[#38bdf8]">
           The Owensboro App
         </h1>
 
-        <h2 className="mt-6 text-center text-2xl font-semibold text-[#ff7a59]">
+        <h2 className="mt-6 text-center text-2xl font-semibold text-[#38bdf8]">
           {challenge ? "Enter sign-in code" : "Admin Login"}
         </h2>
 
@@ -176,13 +176,13 @@ export default function Page() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter password"
-                    className="w-full rounded-xl border border-white/25 bg-black px-4 py-3 pr-12 text-white outline-none focus:border-[#ff7a59]"
+                    className="w-full rounded-xl border border-white/25 bg-black px-4 py-3 pr-12 text-white outline-none focus:border-[#38bdf8]"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-4 top-3 text-[#ff7a59]"
+                    className="absolute right-4 top-3 text-[#38bdf8]"
                   >
                     {showPassword ? "🙈" : "👁"}
                   </button>
@@ -201,7 +201,7 @@ export default function Page() {
           <button
             type="submit"
             disabled={loading || (!!challenge && code.length !== 6)}
-            className="w-full rounded-xl bg-[#e8dcc7] py-3 font-semibold text-black transition hover:bg-[#ff7a59] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-xl bg-[#e8dcc7] py-3 font-semibold text-black transition hover:bg-[#38bdf8] hover:text-black disabled:cursor-not-allowed disabled:opacity-60"
           >
             {challenge
               ? loading ? "Verifying..." : "Verify and sign in"
@@ -217,7 +217,7 @@ export default function Page() {
                 type="button"
                 onClick={handleLogin}
                 disabled={loading}
-                className="text-[#ff7a59] hover:text-white disabled:opacity-60"
+                className="text-[#38bdf8] hover:text-white disabled:opacity-60"
               >
                 Send a new code
               </button>

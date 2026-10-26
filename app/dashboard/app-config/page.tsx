@@ -95,7 +95,7 @@ export default function AppConfigPage() {
     el.innerText = msg;
 
     el.className = `fixed bottom-5 right-5 px-5 py-3 rounded-xl shadow-lg text-white text-sm font-medium z-50
-      ${type === "error" ? "bg-red-500" : "bg-[#ff6b4a]"}`;
+      ${type === "error" ? "bg-red-500" : "bg-[#7dd3fc] text-black"}`;
 
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 3000);
@@ -251,7 +251,7 @@ function PlatformSection({
     <Card
       title={
         <span className="flex items-center gap-2">
-          <Smartphone className="h-4 w-4 text-[#ff7a59]" aria-hidden />
+          <Smartphone className="h-4 w-4 text-[#0369a1]" aria-hidden />
           {title}
         </span>
       }

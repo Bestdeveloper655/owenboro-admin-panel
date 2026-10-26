@@ -92,10 +92,10 @@ export default function DashboardLayout({
   if (loading) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-5 bg-black">
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#ff6b4a] text-base font-bold text-black">
+        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#7dd3fc] text-base font-bold text-black">
           OA
         </span>
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#f4ead7]/15 border-t-[#ff6b4a]" />
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#f4ead7]/15 border-t-[#7dd3fc]" />
         <p className="text-sm text-[#f4ead7]/60">Loading dashboard…</p>
       </div>
     );
@@ -113,8 +113,8 @@ export default function DashboardLayout({
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <div className="mx-auto w-full max-w-screen-2xl">
             {blocked ? (
-              <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[#ff7a59]/40 bg-[#0d0d0d] p-8 text-center">
-                <h1 className="text-2xl font-bold text-[#ff7a59]">Admins only</h1>
+              <div className="mx-auto mt-16 max-w-md rounded-2xl border border-[#38bdf8]/40 bg-[#0d0d0d] p-8 text-center">
+                <h1 className="text-2xl font-bold text-[#38bdf8]">Admins only</h1>
                 <p className="mt-3 text-[#e8dcc7]">
                   This section can only be managed by an admin.
                 </p>

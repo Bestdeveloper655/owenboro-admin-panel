@@ -306,7 +306,7 @@ export default function Page() {
               <button
                 type="button"
                 onClick={() => setSelected(s)}
-                className="group grid w-full grid-cols-2 gap-2 rounded-xl text-left focus-visible:ring-2 focus-visible:ring-[#ff7a59]/50 focus-visible:outline-none"
+                className="group grid w-full grid-cols-2 gap-2 rounded-xl text-left focus-visible:ring-2 focus-visible:ring-[#38bdf8]/50 focus-visible:outline-none"
               >
                 <PhotoTile label="ID photo" url={s.photoUrl} alt="ID photo" />
                 <PhotoTile label="Profile pic" url={s.profilePhotoUrl} alt="Profile picture" />
@@ -566,7 +566,7 @@ function StatusBadge({ status }: { status: Submission["status"] }) {
 /* Square photo inside a submission card, labelled in its corner. */
 function PhotoTile({ label, url, alt }: { label: string; url: string; alt: string }) {
   return (
-    <span className="relative block aspect-square w-full overflow-hidden rounded-xl border border-black/10 bg-black/5 transition group-hover:border-[#ff7a59]">
+    <span className="relative block aspect-square w-full overflow-hidden rounded-xl border border-black/10 bg-black/5 transition group-hover:border-[#38bdf8]">
       {url ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt={alt} className="h-full w-full object-cover" />

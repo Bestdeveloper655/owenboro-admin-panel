@@ -316,7 +316,7 @@ export default function Page() {
                     type="checkbox"
                     checked={selectedGroupIds.includes(g.id)}
                     onChange={() => toggleGroup(g.id)}
-                    className="h-4 w-4 shrink-0 accent-[#ff7a59]"
+                    className="h-4 w-4 shrink-0 accent-[#38bdf8]"
                   />
                   <span className="min-w-0 truncate">{g.name}</span>
                 </label>
@@ -568,7 +568,7 @@ function OptionBar({
         </span>
       </div>
       <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-black/10">
-        <div className="h-full rounded-full bg-[#ff7a59]" style={{ width: `${pct}%` }} />
+        <div className="h-full rounded-full bg-[#38bdf8]" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

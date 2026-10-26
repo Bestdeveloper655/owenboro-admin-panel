@@ -674,12 +674,12 @@ function ChallengeCard({
 
 /* Native file picker styled like the kit's outline button. */
 const fileInputClass =
-  "block w-full cursor-pointer text-sm text-black/60 file:mr-3 file:cursor-pointer file:rounded-xl file:border file:border-[#ff7a59] file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-medium file:text-[#ff7a59] file:transition hover:file:bg-[#ff7a59] hover:file:text-white";
+  "block w-full cursor-pointer text-sm text-black/60 file:mr-3 file:cursor-pointer file:rounded-xl file:border file:border-[#38bdf8] file:bg-transparent file:px-4 file:py-2 file:text-sm file:font-medium file:text-[#0369a1] file:transition hover:file:bg-[#38bdf8] hover:file:text-black";
 
 function ProgressBar({ value }: { value: number }) {
   return (
     <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/10">
-      <div className="h-full rounded-full bg-[#ff7a59] transition-all" style={{ width: `${value}%` }} />
+      <div className="h-full rounded-full bg-[#38bdf8] transition-all" style={{ width: `${value}%` }} />
     </div>
   );
 }

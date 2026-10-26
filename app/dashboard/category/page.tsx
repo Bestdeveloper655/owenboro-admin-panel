@@ -296,7 +296,7 @@ export default function Page() {
       >
         <p className="mt-1 text-sm text-[#e8dcc7]/70">
           Change the order categories appear in the app in{" "}
-          <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
+          <Link href="/dashboard/display-order" className="text-[#0369a1] underline">
             Display Order
           </Link>
           .

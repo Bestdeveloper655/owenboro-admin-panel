@@ -1199,7 +1199,7 @@ function ListingPickerModal({
                 className={cx(
                   "flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition",
                   sel
-                    ? "border-[#ff7a59] bg-[#ff7a59]/10"
+                    ? "border-[#38bdf8] bg-[#38bdf8]/10"
                     : disabled
                       ? "cursor-not-allowed border-black/10 bg-white/30 opacity-40"
                       : "border-black/10 bg-white/50 hover:border-black/20 hover:bg-white",
@@ -1217,7 +1217,7 @@ function ListingPickerModal({
                 )}
                 <span className="min-w-0 flex-1 text-sm font-medium text-black">{l.name}</span>
                 {sel && (
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#ff7a59] text-white">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#38bdf8] text-black">
                     <Check className="h-3.5 w-3.5" aria-hidden />
                   </span>
                 )}

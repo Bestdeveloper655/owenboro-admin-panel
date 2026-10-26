@@ -445,7 +445,7 @@ export default function ListingRequestsPage() {
               key={r.id}
               type="button"
               onClick={() => setOpen(r)}
-              className="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-[#0d0d0d] p-3 text-left transition hover:border-[#ff7a59]/60"
+              className="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-[#0d0d0d] p-3 text-left transition hover:border-[#38bdf8]/60"
             >
               <div className="relative shrink-0">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -606,7 +606,7 @@ function RequestDetails({ r }: { r: ListingRequest }) {
         {r.status === "approved" && (
           <p className="mt-1">
             Approved {formatDate(r.reviewedAt)}. Edit it on{" "}
-            <Link href="/dashboard/listings" className="inline-flex items-center gap-1 text-[#e8562f] underline">
+            <Link href="/dashboard/listings" className="inline-flex items-center gap-1 text-[#0369a1] underline">
               Listings <ExternalLink className="h-3 w-3" aria-hidden />
             </Link>
             .

@@ -233,7 +233,7 @@ function VoteCard({
           <a
             href={link}
             target="_blank"
-            className="mt-1.5 inline-flex max-w-full items-start gap-1.5 text-xs text-black/60 underline transition hover:text-[#ff7a59]"
+            className="mt-1.5 inline-flex max-w-full items-start gap-1.5 text-xs text-black/60 underline transition hover:text-[#0369a1]"
           >
             <ExternalLink className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="break-all">{link}</span>

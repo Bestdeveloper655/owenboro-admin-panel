@@ -79,7 +79,7 @@ export function OpeningHoursWeek({
         );
         const rowClass = cx(
           "flex w-full items-center gap-3 px-4 py-2 text-left text-sm",
-          selected.includes(day) && "bg-[#ff7a59]/10",
+          selected.includes(day) && "bg-[#38bdf8]/10",
         );
         return (
           <li key={day}>
@@ -168,7 +168,7 @@ export default function OpeningHoursEditor({
     cx(
       "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition select-none",
       active
-        ? "border-[#ff7a59] bg-[#ff7a59]/10 text-black"
+        ? "border-[#38bdf8] bg-[#38bdf8]/10 text-black"
         : "border-black/15 bg-white text-black/70 hover:border-black/30",
     );
 
@@ -204,7 +204,7 @@ export default function OpeningHoursEditor({
                 <label key={day} className={chip(days.includes(day))}>
                   <input
                     type="checkbox"
-                    className="accent-[#ff7a59]"
+                    className="accent-[#38bdf8]"
                     checked={days.includes(day)}
                     onChange={() => toggleDay(day)}
                   />

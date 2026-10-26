@@ -59,7 +59,7 @@ export default function SortableList<T>({
           }}
           className={`flex items-center gap-3 rounded-xl border bg-[#ece2cb] px-3 py-2 text-black transition ${
             overIndex === index && dragIndex !== index
-              ? "border-[#ff7a59] ring-2 ring-[#ff7a59]/40"
+              ? "border-[#38bdf8] ring-2 ring-[#38bdf8]/40"
               : "border-transparent"
           } ${dragIndex === index ? "opacity-50" : ""} ${
             disabled ? "cursor-not-allowed opacity-70" : "cursor-grab"

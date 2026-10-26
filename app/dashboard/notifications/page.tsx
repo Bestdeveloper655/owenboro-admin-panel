@@ -651,7 +651,7 @@ const selectedUsers = users.filter((u) =>
               type="checkbox"
               checked={isAllCurrentPageSelected}
               onChange={toggleSelectCurrentPage}
-              className="h-4 w-4 accent-[#ff7a59]"
+              className="h-4 w-4 accent-[#38bdf8]"
             />
             Select all on this page
           </label>
@@ -698,7 +698,7 @@ const selectedUsers = users.filter((u) =>
                     onChange={toggleSelectCurrentPage}
                     aria-label="Select all on this page"
                     title="Select all on this page"
-                    className="h-4 w-4 align-middle accent-[#ff7a59]"
+                    className="h-4 w-4 align-middle accent-[#38bdf8]"
                   />
                 </th>
                 <th className={table.th}>Image</th>
@@ -713,16 +713,16 @@ const selectedUsers = users.filter((u) =>
                 const checked = selectedIds.includes(n.id);
                 const status = statusOf(n);
                 // Selected rows get a light orange tint and an accent bar.
-                const cell = cx(table.td, checked && "bg-[#ff7a59]/10");
+                const cell = cx(table.td, checked && "bg-[#38bdf8]/10");
                 return (
                   <tr key={n.id} className={table.row}>
-                    <td className={cx(cell, "w-10", checked && "shadow-[inset_3px_0_0_#ff7a59]")}>
+                    <td className={cx(cell, "w-10", checked && "shadow-[inset_3px_0_0_#38bdf8]")}>
                       <input
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleSelectOne(n.id)}
                         aria-label={`Select ${n.title || "notification"}`}
-                        className="h-4 w-4 align-middle accent-[#ff7a59]"
+                        className="h-4 w-4 align-middle accent-[#38bdf8]"
                       />
                     </td>
 
@@ -920,7 +920,7 @@ const selectedUsers = users.filter((u) =>
                             className={cx(
                               "flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition",
                               isActive
-                                ? "border-[#ff7a59] bg-[#ff7a59]/10"
+                                ? "border-[#38bdf8] bg-[#38bdf8]/10"
                                 : "border-transparent bg-white/70 hover:bg-white",
                             )}
                           >
@@ -929,8 +929,8 @@ const selectedUsers = users.filter((u) =>
                               className={cx(
                                 "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold",
                                 isActive
-                                  ? "bg-[#ff7a59] text-white"
-                                  : "bg-[#ff7a59]/15 text-[#ff7a59]",
+                                  ? "bg-[#38bdf8] text-black"
+                                  : "bg-[#38bdf8]/15 text-[#0369a1]",
                               )}
                             >
                               {(u.displayName || u.email || "?").charAt(0).toUpperCase()}
@@ -962,9 +962,9 @@ const selectedUsers = users.filter((u) =>
                     {selectedUsers.map((u) => (
                       <span
                         key={u.id}
-                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#ff7a59]/30 bg-[#ff7a59]/10 px-3 py-1 text-xs"
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#38bdf8]/30 bg-[#38bdf8]/10 px-3 py-1 text-xs"
                       >
-                        <Check className="h-3.5 w-3.5 shrink-0 text-[#ff7a59]" aria-hidden />
+                        <Check className="h-3.5 w-3.5 shrink-0 text-[#0369a1]" aria-hidden />
                         <span className="truncate font-semibold text-black">
                           {u.displayName || u.email || u.id}
                         </span>
@@ -1234,9 +1234,9 @@ function AudienceOption({
       aria-pressed={active}
       onClick={onClick}
       className={cx(
-        "flex flex-col items-center gap-1.5 rounded-2xl border-2 px-3 py-4 text-center text-sm font-semibold transition focus-visible:ring-2 focus-visible:ring-[#ff7a59]/40 focus-visible:outline-none",
+        "flex flex-col items-center gap-1.5 rounded-2xl border-2 px-3 py-4 text-center text-sm font-semibold transition focus-visible:ring-2 focus-visible:ring-[#38bdf8]/40 focus-visible:outline-none",
         active
-          ? "border-[#ff7a59] bg-[#ff7a59]/10 text-[#ff7a59]"
+          ? "border-[#38bdf8] bg-[#38bdf8]/10 text-[#0369a1]"
           : "border-black/10 bg-white/60 text-black/65 hover:border-black/25",
       )}
     >

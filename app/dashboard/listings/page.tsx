@@ -622,11 +622,11 @@ export default function Page() {
       >
         <p className="mt-1 text-sm text-[#e8dcc7]/70">
           To change the order listings appear in, use{" "}
-          <Link href="/dashboard/display-order" className="text-[#ff7a59] underline">
+          <Link href="/dashboard/display-order" className="text-[#0369a1] underline">
             Display Order
           </Link>{" "}
           or{" "}
-          <Link href="/dashboard/recommended" className="text-[#ff7a59] underline">
+          <Link href="/dashboard/recommended" className="text-[#0369a1] underline">
             Recommended
           </Link>
           .
@@ -987,7 +987,7 @@ export default function Page() {
                 <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs">
                   <input
                     type="checkbox"
-                    className="accent-[#ff7a59]"
+                    className="accent-[#38bdf8]"
                     checked={keepLegacyTime}
                     onChange={(e) => setKeepLegacyTime(e.target.checked)}
                   />

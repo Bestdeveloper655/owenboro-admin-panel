@@ -37,7 +37,7 @@ export function PageHeader({
   return (
     <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        <h1 className="text-2xl font-bold tracking-tight text-[#ff7a59] sm:text-3xl">
+        <h1 className="text-2xl font-bold tracking-tight text-[#38bdf8] sm:text-3xl">
           {title}
         </h1>
         {description && (
@@ -88,8 +88,8 @@ export type ButtonVariant =
   | "warning"; // filled amber: restrict / suspend
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary: "bg-[#ff7a59] text-white hover:bg-[#ff6b4a]",
-  outline: "border border-[#ff7a59] text-[#ff7a59] hover:bg-[#ff7a59] hover:text-white",
+  primary: "bg-[#38bdf8] text-black hover:bg-[#7dd3fc]",
+  outline: "border border-[#38bdf8] text-[#38bdf8] hover:bg-[#38bdf8] hover:text-black",
   secondary:
     "border border-white/15 text-[#f4ead7] hover:border-white/30 hover:bg-white/5",
   light: "border border-black/15 text-black hover:bg-black/5",
@@ -109,7 +109,7 @@ export function buttonClass(
   size: keyof typeof BUTTON_SIZES = "md",
 ): string {
   return cx(
-    "inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff7a59]/50 disabled:cursor-not-allowed disabled:opacity-50",
+    "inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#38bdf8]/50 disabled:cursor-not-allowed disabled:opacity-50",
     BUTTON_SIZES[size],
     BUTTON_VARIANTS[variant],
   );
@@ -208,7 +208,7 @@ const BADGE_TONES: Record<BadgeTone, string> = {
   amber: "bg-amber-200 text-amber-900",
   green: "bg-emerald-200 text-emerald-900",
   red: "bg-red-200 text-red-900",
-  orange: "bg-[#ff7a59] text-white",
+  orange: "bg-[#38bdf8] text-black",
   blue: "bg-sky-200 text-sky-900",
   purple: "bg-violet-200 text-violet-900",
 };
@@ -241,7 +241,7 @@ export function Badge({
 /* ---------------------------------------------------------------- STATES */
 
 export function Spinner({ className }: { className?: string }) {
-  return <Loader2 className={cx("h-5 w-5 animate-spin text-[#ff7a59]", className)} aria-hidden />;
+  return <Loader2 className={cx("h-5 w-5 animate-spin text-[#38bdf8]", className)} aria-hidden />;
 }
 
 export function LoadingState({ label = "Loading…", className }: { label?: string; className?: string }) {
@@ -279,7 +279,7 @@ export function EmptyState({
       )}
     >
       {Icon && (
-        <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#ff7a59]/10 text-[#ff7a59]">
+        <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-[#38bdf8]/10 text-[#38bdf8]">
           <Icon className="h-5 w-5" aria-hidden />
         </span>
       )}
@@ -373,7 +373,7 @@ export const table = {
 /* -------------------------------------------------------------- FILTERS */
 
 export const filterControlClass =
-  "rounded-xl border border-white/15 bg-[#0a0a0a] px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/40 focus:border-[#ff7a59]";
+  "rounded-xl border border-white/15 bg-[#0a0a0a] px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/40 focus:border-[#38bdf8]";
 
 /* Row of filters above a list. */
 export function Toolbar({ children, className }: { children: ReactNode; className?: string }) {
@@ -441,7 +441,7 @@ export function Segmented<T extends string>({
     <div
       role="tablist"
       className={cx(
-        "inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-[#ff7a59]/50 bg-[#0a0a0a] p-1 text-sm",
+        "inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-[#38bdf8]/50 bg-[#0a0a0a] p-1 text-sm",
         className,
       )}
     >
@@ -456,7 +456,7 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             className={cx(
               "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition sm:px-4",
-              active ? "bg-[#ff7a59] text-white" : "text-[#f3ead7]/80 hover:text-[#ff7a59]",
+              active ? "bg-[#38bdf8] text-black" : "text-[#f3ead7]/80 hover:text-[#38bdf8]",
             )}
           >
             {option.label}
@@ -535,7 +535,7 @@ export function Pagination({
                 className={cx(
                   pageButton,
                   n === page
-                    ? "bg-[#ff7a59] text-white"
+                    ? "bg-[#38bdf8] text-black"
                     : "border border-white/10 hover:border-white/30",
                 )}
               >
@@ -613,7 +613,7 @@ export function Modal({
       >
         <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-4">
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-[#ff7a59]">{title}</h2>
+            <h2 className="text-xl font-bold text-[#0369a1]">{title}</h2>
             {description && <p className="mt-1 text-sm text-black/60">{description}</p>}
           </div>
           <button
@@ -643,8 +643,8 @@ type Tone = "light" | "dark";
 
 const INPUT_TONES: Record<Tone, string> = {
   light:
-    "border-black/15 bg-white text-black placeholder:text-black/35 focus:border-[#ff7a59] focus:ring-[#ff7a59]/30",
-  dark: "border-white/15 bg-[#0a0a0a] text-white placeholder:text-white/35 focus:border-[#ff7a59] focus:ring-[#ff7a59]/20",
+    "border-black/15 bg-white text-black placeholder:text-black/35 focus:border-[#38bdf8] focus:ring-[#38bdf8]/30",
+  dark: "border-white/15 bg-[#0a0a0a] text-white placeholder:text-white/35 focus:border-[#38bdf8] focus:ring-[#38bdf8]/20",
 };
 
 export function inputClass(tone: Tone = "light"): string {
@@ -743,8 +743,8 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cx(
-        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#ff7a59]/40 disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "bg-[#ff7a59]" : tone === "dark" ? "bg-white/20" : "bg-black/20",
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38bdf8]/40 disabled:cursor-not-allowed disabled:opacity-50",
+        checked ? "bg-[#38bdf8]" : tone === "dark" ? "bg-white/20" : "bg-black/20",
       )}
     >
       <span

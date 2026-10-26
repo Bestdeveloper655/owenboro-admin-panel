@@ -26,7 +26,7 @@ export default function PhotoCarousel({
   return (
     <div className={className}>
       <div
-        className="group relative aspect-video w-full overflow-hidden rounded-2xl bg-black/5 outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+        className="group relative aspect-video w-full overflow-hidden rounded-2xl bg-black/5 outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         tabIndex={count > 1 ? 0 : -1}
         onKeyDown={(e) => {
           if (e.key === "ArrowLeft") go(at - 1);
@@ -61,7 +61,7 @@ export default function PhotoCarousel({
         </div>
 
         {at === 0 && (
-          <span className="absolute top-3 left-3 rounded-full bg-orange-500 px-2.5 py-0.5 text-xs font-semibold text-white shadow">
+          <span className="absolute top-3 left-3 rounded-full bg-sky-400 px-2.5 py-0.5 text-xs font-semibold text-black shadow">
             Cover
           </span>
         )}
@@ -124,7 +124,7 @@ export default function PhotoCarousel({
               onClick={() => go(i)}
               title={i === 0 ? "Cover photo" : `Photo ${i + 1}`}
               className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 transition ${
-                i === at ? "border-orange-500" : "border-transparent opacity-70 hover:opacity-100"
+                i === at ? "border-sky-500" : "border-transparent opacity-70 hover:opacity-100"
               }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}

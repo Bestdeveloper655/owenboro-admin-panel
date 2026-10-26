@@ -297,7 +297,7 @@ export default function Page() {
                 const cell = cx(table.td, !r.read && "bg-white/45");
                 return (
                   <tr key={r.id} className={table.row}>
-                    <td className={cx(cell, !r.read && "shadow-[inset_3px_0_0_0_#ff7a59]")}>
+                    <td className={cx(cell, !r.read && "shadow-[inset_3px_0_0_0_#38bdf8]")}>
                       <span className="flex items-center gap-2 whitespace-nowrap">
                         <span className={r.read ? "text-black/75" : "font-semibold"}>{r.name}</span>
                         {!r.read && <Badge tone="orange">Unread</Badge>}

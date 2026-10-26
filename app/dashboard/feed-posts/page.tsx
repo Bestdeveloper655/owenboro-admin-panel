@@ -366,7 +366,7 @@ export default function Page() {
                 key={p.id}
                 className={cx(
                   "flex flex-col overflow-hidden rounded-2xl border bg-[#ece2cb] text-black",
-                  p.pinnedAt ? "border-[#ff7a59] ring-1 ring-[#ff7a59]" : "border-black/5",
+                  p.pinnedAt ? "border-[#38bdf8] ring-1 ring-[#38bdf8]" : "border-black/5",
                 )}
               >
                 <div className="relative aspect-square w-full shrink-0 overflow-hidden bg-black">
@@ -528,7 +528,7 @@ export default function Page() {
           {progress !== null && (
             <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-black/10">
               <div
-                className="h-full rounded-full bg-[#ff7a59] transition-all"
+                className="h-full rounded-full bg-[#38bdf8] transition-all"
                 style={{ width: `${progress}%` }}
               />
             </div>

@@ -580,7 +580,7 @@ function DayRow({
     <div
       className={cx(
         "flex flex-col gap-3 rounded-2xl border bg-[#0d0d0d] p-3 sm:flex-row sm:items-center",
-        tag === "Today" ? "border-[#ff7a59]/60" : "border-white/10",
+        tag === "Today" ? "border-[#38bdf8]/60" : "border-white/10",
       )}
     >
       <div className="flex shrink-0 items-center gap-3 sm:w-36">

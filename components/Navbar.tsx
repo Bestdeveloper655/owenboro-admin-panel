@@ -39,7 +39,7 @@ export default function Navbar({ onMenuClick, role, email }: Props) {
           type="button"
           onClick={onMenuClick}
           aria-label="Open menu"
-          className="rounded-lg border border-white/15 p-2 text-[#f4ead7] transition hover:border-[#ff6b4a] hover:text-[#ff6b4a] lg:hidden"
+          className="rounded-lg border border-white/15 p-2 text-[#f4ead7] transition hover:border-[#7dd3fc] hover:text-[#7dd3fc] lg:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>
@@ -72,7 +72,7 @@ export default function Navbar({ onMenuClick, role, email }: Props) {
         <button
           onClick={handleLogout}
           disabled={loading}
-          className="flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-sm font-medium text-[#f4ead7] transition hover:border-[#ff6b4a] hover:text-[#ff6b4a] disabled:opacity-60"
+          className="flex items-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-sm font-medium text-[#f4ead7] transition hover:border-[#7dd3fc] hover:text-[#7dd3fc] disabled:opacity-60"
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />

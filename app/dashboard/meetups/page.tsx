@@ -334,7 +334,7 @@ export default function Page() {
             type="checkbox"
             checked={pausedOnly}
             onChange={(e) => setPausedOnly(e.target.checked)}
-            className="h-4 w-4 accent-[#ff7a59]"
+            className="h-4 w-4 accent-[#38bdf8]"
           />
           Chat paused only
         </label>
@@ -647,7 +647,7 @@ function MeetupDrawer({
       >
         <header className="flex items-start justify-between gap-4 border-b border-black/10 px-6 pt-6 pb-4">
           <div className="min-w-0">
-            <h2 className="truncate text-xl font-bold text-[#ff7a59]">{meetup.title}</h2>
+            <h2 className="truncate text-xl font-bold text-[#0369a1]">{meetup.title}</h2>
             <p className="mt-1 text-sm text-black/60">
               {groupName} · {formatWhen(meetup.startAt)}
             </p>

@@ -63,9 +63,9 @@ export default function PhotoGrid({
             onDragEnd={endDrag}
             className={cx(
               "group relative aspect-square cursor-grab overflow-hidden rounded-xl border bg-black/5 transition",
-              index === 0 ? "border-[#ff7a59]" : "border-black/10",
+              index === 0 ? "border-[#38bdf8]" : "border-black/10",
               dragIndex === index && "opacity-40",
-              overIndex === index && dragIndex !== index && "ring-2 ring-[#ff7a59]",
+              overIndex === index && dragIndex !== index && "ring-2 ring-[#38bdf8]",
             )}
           >
             <Thumb photo={photo} alt={`Photo ${index + 1}`} />
@@ -105,7 +105,7 @@ export default function PhotoGrid({
         ))}
 
         {photos.length < max && (
-          <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-black/25 bg-white/50 px-2 text-center text-xs font-medium text-black/55 transition hover:border-[#ff7a59] hover:text-[#ff7a59]">
+          <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-black/25 bg-white/50 px-2 text-center text-xs font-medium text-black/55 transition hover:border-[#38bdf8] hover:text-[#0369a1]">
             <ImagePlus className="h-5 w-5" aria-hidden />
             {photos.length === 0 ? "Add photos" : "Add more"}
             <input

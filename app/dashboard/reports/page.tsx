@@ -732,7 +732,7 @@ export default function Page() {
                 setSelected(r);
                 setNote(r.moderatorNotes ?? "");
               }}
-              className="flex min-w-0 flex-col rounded-2xl border border-black/5 bg-[#ece2cb] p-4 text-left text-black transition hover:border-[#ff7a59]/60 hover:bg-[#f5ecd7] focus-visible:ring-2 focus-visible:ring-[#ff7a59]/50 focus-visible:outline-none sm:p-5"
+              className="flex min-w-0 flex-col rounded-2xl border border-black/5 bg-[#ece2cb] p-4 text-left text-black transition hover:border-[#38bdf8]/60 hover:bg-[#f5ecd7] focus-visible:ring-2 focus-visible:ring-[#38bdf8]/50 focus-visible:outline-none sm:p-5"
             >
               <div className="flex w-full flex-wrap items-center justify-between gap-2">
                 <SourceBadge source={r.source} />
@@ -748,7 +748,7 @@ export default function Page() {
               </p>
 
               {r.reporterMessage && (
-                <div className="mt-3 w-full rounded-xl border-l-2 border-[#ff7a59] bg-white/55 px-3 py-2">
+                <div className="mt-3 w-full rounded-xl border-l-2 border-[#38bdf8] bg-white/55 px-3 py-2">
                   <p className="text-[11px] font-semibold tracking-wide text-black/50 uppercase">
                     Reason
                   </p>
@@ -1004,7 +1004,7 @@ export default function Page() {
 
             <DetailSection title="Reason from reporter">
               {selected.reporterMessage ? (
-                <p className="rounded-xl border-l-2 border-[#ff7a59] bg-[#ff7a59]/10 px-3 py-2.5 wrap-break-word whitespace-pre-wrap text-black/90">
+                <p className="rounded-xl border-l-2 border-[#38bdf8] bg-[#38bdf8]/10 px-3 py-2.5 wrap-break-word whitespace-pre-wrap text-black/90">
                   {selected.reporterMessage}
                 </p>
               ) : (
