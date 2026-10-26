@@ -22,6 +22,7 @@ import {
   ListOrdered,
   Mail,
   MessageCircleQuestionMark,
+  MessagesSquare,
   Newspaper,
   PanelTop,
   ShieldCheck,
@@ -94,6 +95,8 @@ export const menuSections: MenuSection[] = [
       { name: "Polls & Questions", path: "/dashboard/polls", icon: ChartColumn },
       // Writes daily_questions, which only admins may change.
       { name: "Question of the Day", path: "/dashboard/question-of-the-day", icon: MessageCircleQuestionMark, adminOnly: true },
+      // The three message chips above every group chat's typing bar.
+      { name: "Chat Suggestions", path: "/dashboard/chat-suggestions", icon: MessagesSquare, adminOnly: true },
       // Moderators review entries here; only admins can flip the on/off switch.
       { name: "Costume Contest", path: "/dashboard/costume-contest", icon: Ghost },
       { name: "Verify Photos", path: "/dashboard/verify-photos", icon: BadgeCheck },
