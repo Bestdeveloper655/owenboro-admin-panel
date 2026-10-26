@@ -413,6 +413,9 @@ function without<T>(map: Record<string, T>, key: string): Record<string, T> {
 
 type TableKey = "pages" | "listings" | "buttons";
 
+/* How often the Today view re-reads while open. */
+const AUTO_REFRESH_MS = 60_000;
+
 export default function AnalyticsPage() {
   const [range, setRange] = useState<RangeKey>("today");
   const [today, setToday] = useState(centralToday);
@@ -468,6 +471,29 @@ export default function AnalyticsPage() {
 
   /* Clearing the error makes the effect above read the range again. */
   const retry = () => setErrors((prev) => without(prev, key));
+
+  // Today refreshes itself every minute while the tab is visible (and as
+  // soon as it's shown again), so the live numbers need no Refresh. Past
+  // days don't change, so they aren't re-read.
+  const latest = useRef({ load, key, loadedAt: result?.loadedAt });
+  useEffect(() => {
+    latest.current = { load, key, loadedAt: result?.loadedAt };
+  });
+  useEffect(() => {
+    if (range !== "today") return;
+    const tick = () => {
+      const { load: reload, key: k, loadedAt } = latest.current;
+      if (document.visibilityState !== "visible" || loading.current.has(k)) return;
+      if (loadedAt && Date.now() - loadedAt.getTime() < AUTO_REFRESH_MS - 5_000) return;
+      reload(true);
+    };
+    const timer = setInterval(tick, AUTO_REFRESH_MS);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [range]);
 
   const totals = useMemo(() => {
     const t = { pages: {} as Counters, listings: {} as Counters, buttons: {} as Counters, events: {} as Counters };
@@ -541,7 +567,7 @@ export default function AnalyticsPage() {
           {range === "today" ? (
             <>
               <Badge tone="green">Live</Badge>
-              <span>{dayLabel(today, true)} · updates every few minutes</span>
+              <span>{dayLabel(today, true)} · refreshes every minute</span>
             </>
           ) : rangeSpan.length === 1 ? (
             <span>{dayLabel(rangeSpan[0], true)}</span>
