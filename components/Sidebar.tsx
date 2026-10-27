@@ -22,6 +22,7 @@ import {
   ListOrdered,
   Mail,
   MessageCircleQuestionMark,
+  MessageSquareQuote,
   MessagesSquare,
   Newspaper,
   PanelTop,
@@ -72,6 +73,8 @@ export const menuSections: MenuSection[] = [
       { name: "Listings", path: "/dashboard/listings", icon: Store, adminOnly: true },
       // Listings suggested from the app's "+" button; approving writes Products.
       { name: "Listing Requests", path: "/dashboard/listing-requests", icon: ClipboardList, adminOnly: true },
+      // Every review left on a listing, with delete.
+      { name: "Reviews", path: "/dashboard/reviews", icon: MessageSquareQuote, adminOnly: true },
       { name: "Recommended", path: "/dashboard/recommended", icon: Star, adminOnly: true },
       { name: "Display Order", path: "/dashboard/display-order", icon: ListOrdered, adminOnly: true },
     ],
