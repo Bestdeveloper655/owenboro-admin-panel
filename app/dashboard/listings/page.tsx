@@ -159,6 +159,17 @@ const toLocalInput = (date: Date | null) => {
 
 const fromLocalInput = (value: string) => (value ? Timestamp.fromDate(new Date(value)) : null);
 
+/* "7:00 PM" in Owensboro time, kept on the listing for older app builds
+   that only read the time text. */
+const clockText = (value: string) =>
+  value
+    ? new Date(value).toLocaleTimeString("en-US", {
+        timeZone: "America/Chicago",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : "";
+
 /* Every Storage file a listing's doc points at. */
 const storedImageUrls = (l: Listing) =>
   [...new Set([...l.images, l.imageField, l.imageUrlField])].filter(Boolean);
@@ -455,6 +466,10 @@ export default function Page() {
         ...form,
         // Replaced by the hours summary when weekly hours are set.
         time: legacyTime && keepLegacyTime ? legacyTime : "",
+        // The time text follows the dates; an older listing with only the
+        // text keeps it until a date is picked.
+        startTimeString: form.startTime ? clockText(form.startTime) : form.startTimeString,
+        endTimeString: form.lastTime ? clockText(form.lastTime) : form.endTimeString,
         startTime: fromLocalInput(form.startTime),
         lastTime: fromLocalInput(form.lastTime),
       },
@@ -1009,30 +1024,25 @@ export default function Page() {
 
           <FormSection>Event time (optional)</FormSection>
           <p className="mt-2 text-xs text-black/55">
-            Shown on cards in pop-up, live music, culture and art sub categories.
+            For events. The app shows the day, date and time, e.g. &ldquo;Sat, Oct 31 · 7:00 – 10:00 PM&rdquo;.
           </p>
+
+          {!form.startTime && form.startTimeString.trim() && (
+            <Alert tone="warning" surface="light" className="mt-3">
+              This event only has a time ({form.startTimeString.trim()}), so the app can&rsquo;t show its day. Pick
+              the start date &amp; time below.
+            </Alert>
+          )}
 
           <div className="grid gap-x-4 sm:grid-cols-2">
             <Input
-              label="Start time text"
-              hint='e.g. "7:00 PM"'
-              value={form.startTimeString}
-              onChange={(v) => setField("startTimeString", v)}
-            />
-            <Input
-              label="End time text"
-              hint='e.g. "10:00 PM"'
-              value={form.endTimeString}
-              onChange={(v) => setField("endTimeString", v)}
-            />
-            <Input
-              label="Start date & time"
+              label="Starts"
               type="datetime-local"
               value={form.startTime}
               onChange={(v) => setField("startTime", v)}
             />
             <Input
-              label="End date & time"
+              label="Ends (optional)"
               type="datetime-local"
               value={form.lastTime}
               onChange={(v) => setField("lastTime", v)}
