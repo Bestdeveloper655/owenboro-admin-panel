@@ -148,23 +148,51 @@ type RecommendedFilter = "all" | "recommended" | "not";
 const toDate = (value: unknown): Date | null =>
   value instanceof Timestamp ? value.toDate() : null;
 
-/* <input type="datetime-local"> works in local time without a zone suffix. */
-const toLocalInput = (date: Date | null) => {
-  if (!date) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
+/* Event times are Owensboro (Central) time, whatever computer the panel is
+   used on: the app shows them in Central, so a time picked here means that
+   time in Owensboro. <input type="datetime-local"> has no zone, so its
+   "YYYY-MM-DDTHH:mm" is read and written as Central wall-clock time. (It
+   used the browser's zone, so 31 Oct 1:46 AM picked in Pakistan showed in
+   the app as Fri, Oct 30, 3:46 PM.) */
+const OWENSBORO_TZ = "America/Chicago";
+
+/* Central wall-clock parts of [date], as a UTC timestamp. */
+const centralWallMs = (date: Date) => {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: OWENSBORO_TZ,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+      .formatToParts(date)
+      .map((x) => [x.type, x.value]),
+  );
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
 };
 
-const fromLocalInput = (value: string) => (value ? Timestamp.fromDate(new Date(value)) : null);
+const toLocalInput = (date: Date | null) =>
+  date ? new Date(centralWallMs(date)).toISOString().slice(0, 16) : "";
+
+/* The moment a Central wall-clock "YYYY-MM-DDTHH:mm" names. */
+const centralDate = (value: string) => {
+  const wall = Date.parse(`${value}:00Z`);
+  // Central's offset at that moment (checked twice for daylight saving).
+  const first = wall - (centralWallMs(new Date(wall)) - wall);
+  return new Date(wall - (centralWallMs(new Date(first)) - first));
+};
+
+const fromLocalInput = (value: string) => (value ? Timestamp.fromDate(centralDate(value)) : null);
 
 /* "7:00 PM" in Owensboro time, kept on the listing for older app builds
    that only read the time text. */
 const clockText = (value: string) =>
   value
-    ? new Date(value).toLocaleTimeString("en-US", {
-        timeZone: "America/Chicago",
+    ? centralDate(value).toLocaleTimeString("en-US", {
+        timeZone: OWENSBORO_TZ,
         hour: "numeric",
         minute: "2-digit",
       })
@@ -433,7 +461,7 @@ export default function Page() {
     }
     if (!form.title.trim()) return "Title is required.";
     if (photos.length === 0) return "Add at least one photo.";
-    if (form.startTime && form.lastTime && new Date(form.lastTime) < new Date(form.startTime)) {
+    if (form.startTime && form.lastTime && centralDate(form.lastTime) < centralDate(form.startTime)) {
       return "End date/time must be after the start date/time.";
     }
     return "";
@@ -1036,13 +1064,13 @@ export default function Page() {
 
           <div className="grid gap-x-4 sm:grid-cols-2">
             <Input
-              label="Starts"
+              label="Starts (Owensboro time)"
               type="datetime-local"
               value={form.startTime}
               onChange={(v) => setField("startTime", v)}
             />
             <Input
-              label="Ends (optional)"
+              label="Ends (optional, Owensboro time)"
               type="datetime-local"
               value={form.lastTime}
               onChange={(v) => setField("lastTime", v)}
