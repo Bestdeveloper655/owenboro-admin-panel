@@ -24,13 +24,9 @@ import {
 import {
   collection,
   doc,
-  average,
   documentId,
-  getAggregateFromServer,
   getCountFromServer,
   getDocs,
-  limit,
-  orderBy,
   query,
   Timestamp,
   where,
@@ -477,9 +473,11 @@ async function fetchProducts(ids: string[]): Promise<Record<string, ProductInfo 
 
 /* Daily messaging streaks, counted by the server on each user:
  * `Users/{uid}.streak` {current, longest, lastDay (Central day of their last
- * message), updatedAt}. A streak is alive while lastDay is today or
- * yesterday. Read "right now", independent of the selected range: 1 count +
- * 1 average aggregation + 25 user docs. */
+ * message), fresh, updatedAt}. A streak is alive while lastDay is today or
+ * yesterday. Streaks start at 1 with the app version that shows them, so
+ * only `fresh` ones count here; older counts from before are left out.
+ * Read "right now", independent of the selected range: the fresh streaks'
+ * user docs (an equality filter, so no composite index). */
 
 type StreakUser = {
   uid: string;
@@ -497,51 +495,42 @@ type Streaks = {
   loadedAt: Date;
 };
 
-const STREAK_CANDIDATES = 25;
 const STREAK_TOP = 10;
 
 async function loadStreaks(today: string): Promise<Streaks> {
   const yesterday = addDays(today, -1);
-  const users = collection(db, "Users");
-  // Single-field range: no composite index needed. Filtering current >= 2 as
-  // well would need one, so this counts every alive streak.
-  const alive = query(users, where("streak.lastDay", ">=", yesterday));
-  const [aliveCount, avg, top] = await Promise.all([
-    count(alive, "alive streaks"),
-    getAggregateFromServer(alive, { avg: average("streak.current") })
-      .then((snap) => snap.data().avg)
-      .catch((err) => {
-        console.error("Analytics: average streak failed:", err);
-        return null;
-      }),
-    getDocs(query(users, orderBy("streak.current", "desc"), limit(STREAK_CANDIDATES)))
-      .then((snap) =>
-        snap.docs.flatMap((d): StreakUser[] => {
-          const x = d.data();
-          const st = (x.streak ?? {}) as { current?: unknown; longest?: unknown; lastDay?: unknown };
-          const current = num(st.current) ?? 0;
-          // Lapsed streaks still carry their old `current`; leave them out.
-          if (typeof st.lastDay !== "string" || st.lastDay < yesterday || current <= 0) return [];
-          const photos = Array.isArray(x.photo_urls)
-            ? x.photo_urls.filter((u: unknown): u is string => typeof u === "string" && u !== "")
-            : [];
-          return [
-            {
-              uid: d.id,
-              name: x.full_name || x.display_name || "No name",
-              photo: (typeof x.photo_url === "string" && x.photo_url) || photos[0] || "",
-              current,
-              longest: Math.max(num(st.longest) ?? 0, current),
-            },
-          ];
-        }).slice(0, STREAK_TOP),
-      )
-      .catch((err) => {
-        console.error("Analytics: top streaks failed:", err);
-        return null;
-      }),
-  ]);
-  return { alive: aliveCount, average: avg ?? null, top, loadedAt: new Date() };
+  try {
+    const snap = await getDocs(query(collection(db, "Users"), where("streak.fresh", "==", true)));
+    const alive = snap.docs.flatMap((d): StreakUser[] => {
+      const x = d.data();
+      const st = (x.streak ?? {}) as { current?: unknown; longest?: unknown; lastDay?: unknown };
+      const current = num(st.current) ?? 0;
+      // Lapsed streaks still carry their old `current`; leave them out.
+      if (typeof st.lastDay !== "string" || st.lastDay < yesterday || current <= 0) return [];
+      const photos = Array.isArray(x.photo_urls)
+        ? x.photo_urls.filter((u: unknown): u is string => typeof u === "string" && u !== "")
+        : [];
+      return [
+        {
+          uid: d.id,
+          name: x.full_name || x.display_name || "No name",
+          photo: (typeof x.photo_url === "string" && x.photo_url) || photos[0] || "",
+          current,
+          longest: Math.max(num(st.longest) ?? 0, current),
+        },
+      ];
+    });
+    const total = alive.reduce((sum, u) => sum + u.current, 0);
+    return {
+      alive: alive.length,
+      average: alive.length ? total / alive.length : null,
+      top: [...alive].sort((a, b) => b.current - a.current).slice(0, STREAK_TOP),
+      loadedAt: new Date(),
+    };
+  } catch (err) {
+    console.error("Analytics: streaks failed:", err);
+    return { alive: null, average: null, top: null, loadedAt: new Date() };
+  }
 }
 
 function describeError(err: unknown): string {
